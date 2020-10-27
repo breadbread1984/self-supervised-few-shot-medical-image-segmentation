@@ -88,6 +88,8 @@ if __name__ == "__main__":
   b = alpnet([q,s,l]);
   alpnet.save('gridconv+.h5');
   fss = FewShotSegmentation(480, 640);
+  q = np.random.normal(size = (1, 480, 640, 3));
+  s = np.random.normal(size = (10, 480, 640, 3));
   fg = np.random.randint(low = 0, high = 2, size = (10, 480, 640));
   bg = np.ones_like(fg) - fg;
   pred = fss([q, s, fg, bg]);

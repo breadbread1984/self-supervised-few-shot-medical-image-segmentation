@@ -9,7 +9,7 @@ def ALPNet(height, width, channel = 3, mode = 'gridconv+', thresh = 0.95):
   support = tf.keras.Input((height, width, channel)); # support.shape = (nshot, h, w, c)
   labels = tf.keras.Input((height, width, 1)); # labels.shape = (nshot, h, w, 1) with foreground value 1 and background value 0
   if mode == 'mask':
-    # get prototype vector which is the reduce mean of the mask area of the input tensor
+    # convolute query tensor with a single foreground prototype vector
     proto = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = (1, 2)) / (tf.math.reduce_sum(x[1], axis = (1, 2)) + 1e-5))([support, labels]); # proto.shape = (nshot, c)
     proto = tf.keras.layers.Lambda(lambda x: tf.reshape(tf.math.reduce_mean(x, axis = 0), (1, 1, 1, -1)))(proto); # proto.shape = (1, 1, 1, c)
     pred_mask = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = -1) / tf.maximum(tf.norm(x[0], axis = -1) * tf.norm(x[1], axis = -1), 1e-4))([query, proto]); # pred_mask.shape = (1, h, w)
@@ -47,10 +47,15 @@ if __name__ == "__main__":
 
   assert tf.executing_eagerly();
   import numpy as np;
-  a = np.random.normal(size = (8, 480, 640));
+  q = np.random.normal(size = (1, 480, 640, 5));
+  s = np.random.normal(size = (10, 480, 640, 5));
+  l = np.random.normal(size = (10, 480, 640, 1));
   alpnet = ALPNet(480, 640, mode = 'mask');
+  b = alpnet([q,s,l]);
   alpnet.save('mask.h5');
   alpnet = ALPNet(480, 640, mode = 'gridconv');
+  b = alpnet([q,s,l]);
   alpnet.save('gridconv.h5');
   alpnet = ALPNet(480, 640, mode = 'gridconv+');
+  b = alpnet([q,s,l]);
   alpnet.save('gridconv+.h5');

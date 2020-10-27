@@ -43,6 +43,26 @@ def ALPNet(height, width, channel = 3, mode = 'gridconv+', thresh = 0.95):
     else:
       raise Exception('unknown mode!');
 
+def FewShotSegmentation(height, width, thresh = 0.95):
+
+  support = tf.keras.Input((height, width, 3)); # support.shape = (nshot, h, w, 3)
+  fg = tf.keras.Input((height, width)); # fg.shape = (nshot, h, w)
+  bg = tf.keras.Input((height, width)); # bg.shape = (nshot, h, w)
+  query = tf.keras.Input((height, width, 3), batch_size = 1); # mask.shape = (batch = 1, h, w, 3)
+  imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + 1, h, w, 3)
+  resnet101 = tf.keras.applications.ResNet101(include_top = False, weights = 'imagenet', input_tensor = imgs_concat);
+  img_fts = resnet101.output; # img_fts.shape = (nshot + 1, nh, nw, 2048)
+  supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, 1), axis = 0))(img_fts); # supp_fits.shape = (nshot, nh, nw, 2048), qry_fts.shape = (1, nh, nw, 2048)
+  ds_fg = tf.keras.layers.Lambda(lambda x: tf.squeeze(tf.image.resize(tf.expand_dims(x[0], axis = -1), size = x[1].shape[1:3]), axis = -1))([fg, img_fts]); # ds_fg.shape = (nshot, nh, nw)
+  ds_bg = tf.keras.layers.Lambda(lambda x: tf.squeeze(tf.image.resize(tf.expand_dims(x[0], axis = -1), size = x[1].shape[1:3]), axis = -1))([bg, img_fts]); # ds_bg.shape = (nshot, nh, nw)
+  bg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = thresh)([qry_fts, supp_fts, ds_bg]);
+  maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4, 4))))(ds_fg);
+  fg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.greater(x[0], t), 
+                                                             true_fn = lambda: ALPNet(x[1].shape[1], x[1].shape[2], x[1].shape[3], mode = 'gridconv+', thresh = t)([x[1], x[2], x[3]]), 
+                                                             false_fn = lambda: ALPNet(x[1].shape[1], x[1].shape[2], x[1].shape[3], mode = 'mask', thresh = t)([x[1], x[2], x[3]])), 
+                                        arguments = {'t': thresh})([maxval, qry_fts, supp_fts, ds_fg]);
+  
+
 if __name__ == "__main__":
 
   assert tf.executing_eagerly();

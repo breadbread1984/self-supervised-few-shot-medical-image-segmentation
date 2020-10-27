@@ -43,28 +43,33 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, nam
     else:
       raise Exception('unknown mode!');
 
-def FewShotSegmentation(height, width, thresh = 0.95):
+class FewShotSegmentation(tf.keras.Model):
 
-  support = tf.keras.Input((height, width, 3)); # support.shape = (nshot, h, w, 3)
-  fg = tf.keras.Input((height, width)); # fg.shape = (nshot, h, w)
-  bg = tf.keras.Input((height, width)); # bg.shape = (nshot, h, w)
-  query = tf.keras.Input((height, width, 3), batch_size = 1); # mask.shape = (batch = 1, h, w, 3)
-  imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + 1, h, w, 3)
-  resnet101 = tf.keras.applications.ResNet101(include_top = False, weights = 'imagenet', input_tensor = imgs_concat);
-  img_fts = resnet101.output; # img_fts.shape = (nshot + 1, nh, nw, 2048)
-  supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, 1), axis = 0))(img_fts); # supp_fits.shape = (nshot, nh, nw, 2048), qry_fts.shape = (1, nh, nw, 2048)
-  ds_fg = tf.keras.layers.Lambda(lambda x: tf.squeeze(tf.image.resize(tf.expand_dims(x[0], axis = -1), size = x[1].shape[1:3]), axis = -1))([fg, img_fts]); # ds_fg.shape = (nshot, nh, nw)
-  ds_bg = tf.keras.layers.Lambda(lambda x: tf.squeeze(tf.image.resize(tf.expand_dims(x[0], axis = -1), size = x[1].shape[1:3]), axis = -1))([bg, img_fts]); # ds_bg.shape = (nshot, nh, nw)
-  bg_alpnet = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = thresh, name = 'bg_alpnet');
-  fg_alpnet_1 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = thresh, name = 'fg_alpnet_1');
-  fg_alpnet_2 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = thresh, name = 'fg_alpnet_2');
-  bg_raw_score = bg_alpnet([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (1, nh, nw)
-  maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(tf.expand_dims(x, axis = -1), (4, 4), strides = (1, 1), padding = 'VALID')))(ds_fg);
-  fg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.greater(x[0], t), true_fn = lambda: fg_alpnet_1([x[1], x[2], x[3]]), false_fn = lambda: fg_alpnet_2([x[1], x[2], x[3]])), 
-                                        arguments = {'t': thresh})([maxval, qry_fts, supp_fts, ds_fg]); # fg_raw_score.shape = (1, nh, nw)
-  scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))([bg_raw_score, fg_raw_score]); # scores.shape = (1, nh, nw, 2)
-  pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3]))([scores, fg]); # us_scores.shape = (1, h, w, 2) in sequence of background, foreground
-  return tf.keras.Model(inputs = (query, support, fg, bg), outputs = pred);
+  def __init__(self, height, width, thresh = 0.95, name = 'few_shot_segmentation', **kwargs):
+
+    super(FewShotSegmentation, self).__init__(name = name, ** kwargs);
+    self.resnet101 = tf.keras.applications.ResNet101(include_top = False, weights = 'imagenet');
+    self.thresh = thresh;
+
+  def call(self, inputs):
+
+    # query.shape = (batch = 1, h, w, 3)
+    # support.shape = (nshot, h, w, 3)
+    # fg.shape = (nshot, h, w)
+    # bg.shape = (nshot, h, w)
+    query, support, fg, bg = inputs;
+    imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + 1, h, w, 3)
+    img_fts = self.resnet101(imgs_concat); # img_fts.shape = (nshot + 1, nh, nw, 2048)
+    supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, 1), axis = 0))(img_fts); # supp_fits.shape = (nshot, nh, nw, 2048), qry_fts.shape = (1, nh, nw, 2048)
+    ds_fg = tf.keras.layers.Lambda(lambda x: tf.squeeze(tf.image.resize(tf.expand_dims(x[0], axis = -1), size = x[1].shape[1:3]), axis = -1))([fg, img_fts]); # ds_fg.shape = (nshot, nh, nw)
+    ds_bg = tf.keras.layers.Lambda(lambda x: tf.squeeze(tf.image.resize(tf.expand_dims(x[0], axis = -1), size = x[1].shape[1:3]), axis = -1))([bg, img_fts]); # ds_bg.shape = (nshot, nh, nw)
+    bg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (1, nh, nw)
+    maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(tf.expand_dims(x, axis = -1), (4, 4), strides = (1, 1), padding = 'VALID')))(ds_fg);
+    fg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = self.thresh)([qry_fts, supp_fts, ds_fg]) if maxval > self.thresh \
+      else ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = self.thresh)([qry_fts, supp_fts, ds_fg]); # fg_raw_score.shape = (1, nh, nw)
+    scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))([bg_raw_score, fg_raw_score]); # scores.shape = (1, nh, nw, 2)
+    pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3]))([scores, fg]); # us_scores.shape = (1, h, w, 2) in sequence of background, foreground
+    return pred;
 
 def AlignLoss(height, width):
 
@@ -93,4 +98,4 @@ if __name__ == "__main__":
   fg = np.random.randint(low = 0, high = 2, size = (10, 480, 640));
   bg = np.ones_like(fg) - fg;
   pred = fss([q, s, fg, bg]);
-  fss.save('fss.h5');
+  fss.save_weights('fss.h5');

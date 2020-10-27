@@ -2,7 +2,7 @@
 
 import tensorflow as tf;
 
-def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95):
+def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, name = None):
 
   assert mode in ['mask', 'gridconv', 'gridconv+'];
   query = tf.keras.Input((height, width, channel), batch_size = 1); # query.shape = (batch = 1, h, w, c)
@@ -13,7 +13,7 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95):
     proto = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = (1, 2)) / (tf.math.reduce_sum(x[1], axis = (1, 2)) + 1e-5))([support, labels]); # proto.shape = (nshot, c)
     proto = tf.keras.layers.Lambda(lambda x: tf.reshape(tf.math.reduce_mean(x, axis = 0), (1, 1, 1, -1)))(proto); # proto.shape = (1, 1, 1, c)
     pred_mask = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = -1) / tf.maximum(tf.norm(x[0], axis = -1) * tf.norm(x[1], axis = -1), 1e-4))([query, proto]); # pred_mask.shape = (1, h, w)
-    return tf.keras.Model(inputs = (query, support, labels), outputs = pred_mask);
+    return tf.keras.Model(inputs = (query, support, labels), outputs = pred_mask, name = name);
   else:
     # get foreground prototype vectors of down sampled input tensor
     n_sup = tf.keras.layers.AveragePooling2D(pool_size = (4, 4))(support); # n_sup.shape = (nshot, nh, nw, c)
@@ -30,7 +30,7 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95):
       filters = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.expand_dims(tf.transpose(x, (1, 0)), axis = 0), axis = 0))(protos); # filters.shape = (1, 1, c, n)
       dists = tf.keras.layers.Lambda(lambda x: tf.nn.conv2d(input = x[0], filters = x[1], strides = (1, 1), padding = 'VALID') * 20)([qry, filters]); # dists.shape = (1, h, w, n)
       pred_grid = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(tf.nn.softmax(x, axis = -1) * x, axis = -1))(dists); # pred_grid.shape = (1, h, w)
-      return tf.keras.Model(inputs = (query, support, labels), outputs = pred_grid);
+      return tf.keras.Model(inputs = (query, support, labels), outputs = pred_grid, name = name);
     elif mode == 'gridconv+':
       # convolute query tensor with prototype vectors from original resolution input tensor and downsampled input tensor
       glb_proto = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = (1, 2)) / tf.math.reduce_sum(x[1], axis = (1, 2)) + 1e-5)([support, labels]); # glb_proto.shape = (nshot, c)
@@ -39,7 +39,7 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95):
       filters = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.expand_dims(tf.transpose(x, (1, 0)), axis = 0), axis = 0))(pro_n); # filters.shape = (1, 1, c, n + nshot)
       dists = tf.keras.layers.Lambda(lambda x: tf.nn.conv2d(input = x[0], filters = x[1], strides = (1, 1), padding = 'VALID') * 20)([qry, filters]); # dists.shape = (1, h, w, n + nshot)
       pred_grid = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(tf.nn.softmax(x, axis = -1) * x, axis = -1))(dists); # pred_grid.shape = (1, h, w)
-      return tf.keras.Model(inputs = (query, support, labels), outputs = pred_grid);
+      return tf.keras.Model(inputs = (query, support, labels), outputs = pred_grid, name = name);
     else:
       raise Exception('unknown mode!');
 
@@ -55,11 +55,12 @@ def FewShotSegmentation(height, width, thresh = 0.95):
   supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, 1), axis = 0))(img_fts); # supp_fits.shape = (nshot, nh, nw, 2048), qry_fts.shape = (1, nh, nw, 2048)
   ds_fg = tf.keras.layers.Lambda(lambda x: tf.squeeze(tf.image.resize(tf.expand_dims(x[0], axis = -1), size = x[1].shape[1:3]), axis = -1))([fg, img_fts]); # ds_fg.shape = (nshot, nh, nw)
   ds_bg = tf.keras.layers.Lambda(lambda x: tf.squeeze(tf.image.resize(tf.expand_dims(x[0], axis = -1), size = x[1].shape[1:3]), axis = -1))([bg, img_fts]); # ds_bg.shape = (nshot, nh, nw)
-  bg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = thresh)([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (1, nh, nw)
-  maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4, 4))))(ds_fg);
-  fg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.greater(x[0], t), 
-                                                             true_fn = lambda: ALPNet(x[1].shape[1], x[1].shape[2], x[1].shape[3], mode = 'gridconv+', thresh = t)([x[1], x[2], x[3]]), 
-                                                             false_fn = lambda: ALPNet(x[1].shape[1], x[1].shape[2], x[1].shape[3], mode = 'mask', thresh = t)([x[1], x[2], x[3]])), 
+  bg_alpnet = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = thresh, name = 'bg_alpnet');
+  fg_alpnet_1 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = thresh, name = 'fg_alpnet_1');
+  fg_alpnet_2 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = thresh, name = 'fg_alpnet_2');
+  bg_raw_score = bg_alpnet([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (1, nh, nw)
+  maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(tf.expand_dims(x, axis = -1), (4, 4), strides = (1, 1), padding = 'VALID')))(ds_fg);
+  fg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.greater(x[0], t), true_fn = lambda: fg_alpnet_1([x[1], x[2], x[3]]), false_fn = lambda: fg_alpnet_2([x[1], x[2], x[3]])), 
                                         arguments = {'t': thresh})([maxval, qry_fts, supp_fts, ds_fg]); # fg_raw_score.shape = (1, nh, nw)
   scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))([bg_raw_score, fg_raw_score]); # scores.shape = (1, nh, nw, 2)
   pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3]))([scores, fg]); # us_scores.shape = (1, h, w, 2) in sequence of background, foreground
@@ -86,3 +87,8 @@ if __name__ == "__main__":
   alpnet = ALPNet(480, 640, mode = 'gridconv+');
   b = alpnet([q,s,l]);
   alpnet.save('gridconv+.h5');
+  fss = FewShotSegmentation(480, 640);
+  fg = np.random.randint(low = 0, high = 2, size = (10, 480, 640));
+  bg = np.ones_like(fg) - fg;
+  pred = fss([q, s, fg, bg]);
+  fss.save('fss.h5');

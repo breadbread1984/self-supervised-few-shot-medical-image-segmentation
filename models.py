@@ -53,15 +53,17 @@ class FewShotSegmentation(tf.keras.Model):
 
   def call(self, inputs):
 
-    # query.shape = (batch = qn, h, w, 3)
+    # query.shape = (qn, h, w, 3)
     # support.shape = (nshot, h, w, 3)
     # fg.shape = (nshot, h, w, nway)
     # bg.shape = (nshot, h, w, nway = 1)
-    query, support, fg, bg = inputs;
+    # with_loss.shape = ()
+    query, support, fg, bg, with_loss = inputs;
     assert bg.shape[-1] == 1; # because background can only has one mask
+    assert type(with_loss) is bool;
     imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + qn, h, w, 3)
     img_fts = self.resnet101(imgs_concat); # img_fts.shape = (nshot + 1, nh, nw, 2048)
-    supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, query.shape[0]), axis = 0))(img_fts); # supp_fits.shape = (nshot, nh, nw, 2048), qry_fts.shape = (qn, nh, nw, 2048)
+    supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, query.shape[0]), axis = 0))(img_fts); # supp_fts.shape = (nshot, nh, nw, 2048), qry_fts.shape = (qn, nh, nw, 2048)
     ds_fg = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = x[1].shape[1:3]))([fg, img_fts]); # ds_fg.shape = (nshot, nh, nw, nway)
     ds_bg = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = x[1].shape[1:3]))([bg, img_fts]); # ds_bg.shape = (nshot, nh, nw, nway = 1)
     scores = list();
@@ -74,20 +76,16 @@ class FewShotSegmentation(tf.keras.Model):
       scores.append(fg_raw_score);
     scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (qn, nh, nw, 1 + foreground number)
     pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3]))([scores, fg]); # us_scores.shape = (qn, h, w, 1 + foreground number)
+    # get align_loss
+    if with_loss:
+      query_bg, query_fg = tf.kersa.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(pred); # query_bg.shape = (qn, h, w, 1), query_fg.shape = (qn, h, w, foreground number)
+      bg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([supp_fts, qry_fts, query_bg[..., 0]]); # bg_raw_score.shape = (nshot, nh, nw)
+      for i in range(query_fg.shape[-1]):
+        maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(tf.expand_dims(x, axis = -1), (4, 4), strides = (1, 1), padding = 'VALID')))(query_fg[..., i]);
+        fg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv+', thresh = self.thresh)([supp_fts, qry_fts, query_fg[..., i]]) if maxval > self.thresh \
+          else ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = self.thresh)([supp_fts, qry_fts, query_fg[..., i]]); # fg_raw_score.shape = (nshot, nh, nw)
+      
     return pred;
-
-class AlignLoss(tf.keras.Model):
-    
-  def __init__(self, height, width, name = 'align_loss', **kwargs):
-
-    super(AlignLoss, self).__init__(name = name, ** kwargs);
-    
-  def call(self, inputs):
-
-    # pred.shape = (batch = qn, h, w, 2)
-    # fg.shape = ()
-    pred, fg, bg = inputs;
-  
 
 if __name__ == "__main__":
 

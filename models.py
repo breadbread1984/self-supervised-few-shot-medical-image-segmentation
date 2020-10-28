@@ -58,7 +58,7 @@ class FewShotSegmentation(tf.keras.Model):
     # labels.shape = (nshot, h, w, 1 + foreground number)
     # with_loss.shape = ()
     query, support, labels, with_loss = inputs;
-    assert type(with_loss) is bool;
+    assert with_loss.dtype == tf.bool;
     imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + qn, h, w, 3)
     img_fts = self.resnet101(imgs_concat); # img_fts.shape = (nshot + 1, nh, nw, 2048)
     supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, query.shape[0]), axis = 0))(img_fts); # supp_fts.shape = (nshot, nh, nw, 2048), qry_fts.shape = (qn, nh, nw, 2048)
@@ -68,7 +68,7 @@ class FewShotSegmentation(tf.keras.Model):
     bg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([qry_fts, supp_fts, ds_bg[..., 0:1]]); # bg_raw_score.shape = (qn, nh, nw)
     scores.append(bg_raw_score);
     for i in range(ds_fg.shape[-1]):
-      maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(tf.expand_dims(x, axis = -1), (4, 4), strides = (1, 1), padding = 'VALID')))(ds_fg[..., i:i+1]);
+      maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4, 4), strides = (1, 1), padding = 'VALID')))(ds_fg[..., i:i+1]);
       fg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = self.thresh)([qry_fts, supp_fts, ds_fg[..., i:i+1]]) if maxval > self.thresh \
         else ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = self.thresh)([qry_fts, supp_fts, ds_fg[..., i:i+1]]); # fg_raw_score.shape = (qn, nh, nw)
       scores.append(fg_raw_score);
@@ -77,13 +77,14 @@ class FewShotSegmentation(tf.keras.Model):
     # get align_loss
     if with_loss:
       pred_cls = tf.keras.layers.Lambda(lambda x: tf.math.argmax(x, axis = -1))(pred); # pred_cls.shape = (qn, h, w)
-      query_label = tf.one_hot(pred_cls, depth = pred.shape[-1], axis = -1); # pred_cls.shape = (qn, h, w, 1 + foreground number)
-      query_bg, query_fg = tf.kersa.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(query_label); # query_bg.shape = (qn, h, w, 1), query_fg.shape = (qn, h, w, foreground number)
+      query_label = tf.keras.layers.Lambda(lambda x: tf.one_hot(x[0], depth = x[1].shape[-1], axis = -1))([pred_cls, pred]); # pred_cls.shape = (qn, h, w, 1 + foreground number)
+      ds_query_label = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = x[1].shape[1:3]))([query_label, img_fts]); # ds_query_label.shape = (qn, nh, nw, 1 + foreground number)
+      query_bg, query_fg = tf.keras.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(ds_query_label); # query_bg.shape = (qn, h, w, 1), query_fg.shape = (qn, h, w, foreground number)
       scores = list();
       bg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([supp_fts, qry_fts, query_bg[..., 0:1]]); # bg_raw_score.shape = (nshot, nh, nw)
       scores.append(bg_raw_score);
       for i in range(query_fg.shape[-1]):
-        maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(tf.expand_dims(x, axis = -1), (4, 4), strides = (1, 1), padding = 'VALID')))(query_fg[..., i:i+1]);
+        maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4, 4), strides = (1, 1), padding = 'VALID')))(query_fg[..., i:i+1]);
         fg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv+', thresh = self.thresh)([supp_fts, qry_fts, query_fg[..., i:i+1]]) if maxval > self.thresh \
           else ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = self.thresh)([supp_fts, qry_fts, query_fg[..., i:i+1]]); # fg_raw_score.shape = (nshot, nh, nw)
         scores.append(fg_raw_score);
@@ -111,7 +112,6 @@ if __name__ == "__main__":
   fss = FewShotSegmentation(480, 640);
   q = np.random.normal(size = (8, 480, 640, 3));
   s = np.random.normal(size = (10, 480, 640, 3));
-  fg = np.random.randint(low = 0, high = 2, size = (10, 480, 640, 10));
-  bg = np.random.randint(low = 0, high = 2, size = (10, 480, 640, 1));
-  pred = fss([q, s, fg, bg]);
+  l = np.random.randint(low = 0, high = 2, size = (10, 480, 640, 11));
+  pred = fss([q, s, l, True]);
   fss.save_weights('fss.h5');

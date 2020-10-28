@@ -65,12 +65,12 @@ class FewShotSegmentation(tf.keras.Model):
     ds_labels = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = x[1].shape[1:3]))([labels, img_fts]); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)
     ds_bg, ds_fg = tf.keras.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(ds_labels); # ds_bg.shape = (nshot, nh, nw, 1), ds_fg.shape = (nshot, nh, nw, foreground number)
     scores = list();
-    bg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([qry_fts, supp_fts, ds_bg[..., 0]]); # bg_raw_score.shape = (qn, nh, nw)
+    bg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([qry_fts, supp_fts, ds_bg[..., 0:1]]); # bg_raw_score.shape = (qn, nh, nw)
     scores.append(bg_raw_score);
     for i in range(ds_fg.shape[-1]):
-      maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(tf.expand_dims(x, axis = -1), (4, 4), strides = (1, 1), padding = 'VALID')))(ds_fg[..., i]);
-      fg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = self.thresh)([qry_fts, supp_fts, ds_fg[..., i]]) if maxval > self.thresh \
-        else ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = self.thresh)([qry_fts, supp_fts, ds_fg[..., i]]); # fg_raw_score.shape = (qn, nh, nw)
+      maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(tf.expand_dims(x, axis = -1), (4, 4), strides = (1, 1), padding = 'VALID')))(ds_fg[..., i:i+1]);
+      fg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = self.thresh)([qry_fts, supp_fts, ds_fg[..., i:i+1]]) if maxval > self.thresh \
+        else ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = self.thresh)([qry_fts, supp_fts, ds_fg[..., i:i+1]]); # fg_raw_score.shape = (qn, nh, nw)
       scores.append(fg_raw_score);
     scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (qn, nh, nw, 1 + foreground number)
     pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3]))([scores, labels]); # us_scores.shape = (qn, h, w, 1 + foreground number)
@@ -80,15 +80,16 @@ class FewShotSegmentation(tf.keras.Model):
       query_label = tf.one_hot(pred_cls, depth = pred.shape[-1], axis = -1); # pred_cls.shape = (qn, h, w, 1 + foreground number)
       query_bg, query_fg = tf.kersa.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(query_label); # query_bg.shape = (qn, h, w, 1), query_fg.shape = (qn, h, w, foreground number)
       scores = list();
-      bg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([supp_fts, qry_fts, query_bg[..., 0]]); # bg_raw_score.shape = (nshot, nh, nw)
+      bg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([supp_fts, qry_fts, query_bg[..., 0:1]]); # bg_raw_score.shape = (nshot, nh, nw)
       scores.append(bg_raw_score);
       for i in range(query_fg.shape[-1]):
-        maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(tf.expand_dims(x, axis = -1), (4, 4), strides = (1, 1), padding = 'VALID')))(query_fg[..., i]);
-        fg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv+', thresh = self.thresh)([supp_fts, qry_fts, query_fg[..., i]]) if maxval > self.thresh \
-          else ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = self.thresh)([supp_fts, qry_fts, query_fg[..., i]]); # fg_raw_score.shape = (nshot, nh, nw)
+        maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(tf.expand_dims(x, axis = -1), (4, 4), strides = (1, 1), padding = 'VALID')))(query_fg[..., i:i+1]);
+        fg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv+', thresh = self.thresh)([supp_fts, qry_fts, query_fg[..., i:i+1]]) if maxval > self.thresh \
+          else ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = self.thresh)([supp_fts, qry_fts, query_fg[..., i:i+1]]); # fg_raw_score.shape = (nshot, nh, nw)
         scores.append(fg_raw_score);
       scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (nshot, nh, nw, 1 + foreground number)
-      loss = tf.keras.losses.CategoricalCrossentropy(labels, scores);
+      supp_pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3]))([scores, labels]); # supp_pred.shape = (nshot, h, w, 1 + foreground)
+      loss = tf.keras.losses.CategoricalCrossentropy(labels, supp_pred);
     return pred if with_loss == False else pred, loss;
 
 if __name__ == "__main__":

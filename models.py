@@ -78,7 +78,9 @@ class FewShotSegmentation(tf.keras.Model):
     pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3]))([scores, fg]); # us_scores.shape = (qn, h, w, 1 + foreground number)
     # get align_loss
     if with_loss:
-      query_bg, query_fg = tf.kersa.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(pred); # query_bg.shape = (qn, h, w, 1), query_fg.shape = (qn, h, w, foreground number)
+      pred_cls = tf.keras.layers.Lambda(lambda x: tf.math.argmax(x, axis = -1))(pred); # pred_cls.shape = (qn, h, w)
+      query_label = tf.one_hot(pred_cls, depth = pred.shape[-1], axis = -1); # pred_cls.shape = (qn, h, w, 1 + foreground number)
+      query_bg, query_fg = tf.kersa.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(query_label); # query_bg.shape = (qn, h, w, 1), query_fg.shape = (qn, h, w, foreground number)
       bg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([supp_fts, qry_fts, query_bg[..., 0]]); # bg_raw_score.shape = (nshot, nh, nw)
       for i in range(query_fg.shape[-1]):
         maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(tf.expand_dims(x, axis = -1), (4, 4), strides = (1, 1), padding = 'VALID')))(query_fg[..., i]);

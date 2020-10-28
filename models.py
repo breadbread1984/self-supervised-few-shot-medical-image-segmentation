@@ -49,6 +49,7 @@ class FewShotSegmentation(tf.keras.Model):
 
     super(FewShotSegmentation, self).__init__(name = name, ** kwargs);
     self.resnet101 = tf.keras.applications.ResNet101(include_top = False, weights = 'imagenet');
+    self.conv = tf.keras.layers.Conv2D(filters = 256, kernel_size = (1, 1));
     self.thresh = thresh;
 
   def call(self, inputs):
@@ -60,8 +61,8 @@ class FewShotSegmentation(tf.keras.Model):
     query, support, labels, with_loss = inputs;
     assert with_loss.dtype == tf.bool;
     imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + qn, h, w, 3)
-    img_fts = self.resnet101(imgs_concat); # img_fts.shape = (nshot + 1, nh, nw, 2048)
-    supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, query.shape[0]), axis = 0))(img_fts); # supp_fts.shape = (nshot, nh, nw, 2048), qry_fts.shape = (qn, nh, nw, 2048)
+    img_fts = self.conv(self.resnet101(imgs_concat)); # img_fts.shape = (nshot + 1, nh, nw, 256)
+    supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, query.shape[0]), axis = 0))(img_fts); # supp_fts.shape = (nshot, nh, nw, 256), qry_fts.shape = (qn, nh, nw, 256)
     ds_labels = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = x[1].shape[1:3]))([labels, img_fts]); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)
     ds_bg, ds_fg = tf.keras.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(ds_labels); # ds_bg.shape = (nshot, nh, nw, 1), ds_fg.shape = (nshot, nh, nw, foreground number)
     scores = list();

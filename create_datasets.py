@@ -1,31 +1,62 @@
 #!/usr/bin/python3
 
 from os import listdir;
-from os.path import join, splitext;
+from os.path import join, splitext, basename;
 import numpy as np;
 from skimage.segmentation import felzenszwalb; # graph cut
 from skimage.measure import label; # label connected component
 import scipy.ndimage.morphology as snm; # morphology
-import dicom;
-import simpleITK as sitk;
+import SimpleITK as sitk;
 import cv2;
+
+HIST_CUT_TOP = 0.5;
+NEW_SPA = [1.25, 1.25, 7.70]; # unified voxel spacing
+CROP_SIZE = [256, 256];
 
 def process_CHAOST2(dataset_root):
 
   for sid in listdir(dataset_root):
-    # 1) process data
-    for f in listdir(join(dataset_root, sid, "T2SPIR", "DICOM_anon")):
-      if splitext(f)[1] == '.dcm':
-        slice = dicom.read_file(join(dataset_root, sid, "T2SPIR", "DICOM_anon", f));
-        # TODO
-    # 2) process labels
-    for f in listdir(join(dataset_root, sid, "T2SPIR", "Ground")):
+    # process a MR
+    reader = sitk.ImageSeriesReader();
+    dicom_names = reader.GetGDCMSeriesFileNames(join(dataset_root, sid, "T2SPIR", "DICOM_anon"));
+    reader.SetFileNames(dicom_names);
+    slices = reader.Execute();
+    # process corresponding labels
+    labels = dict();
+    for f in listdir(join(dataset_root, sid, 'T2SPIR', 'Ground')):
       if splitext(f)[1] == '.png':
-        label = cv2.imread(join(dataset_root, sid, "T2SPIR", "Ground", f));
+        label = cv2.imread(join(dataset_root, sid, 'T2SPIR', 'Ground', f));
         if label is None:
-          print("label file %s is broken" % (join(dataset_root, sid, "T2SPIR", "Ground", f)));
+          print("label file %s is broken" % (join(dataset_root, sid, "T2SPIR", "Ground", labelfile)));
           continue;
-        # TODO
+      labels = [t[1] for t in sorted(labels.items())];
+      labels = np.stack(labels, axis = 0);
+    # filtering over bright area
+    array = sitk.GetArrayFromImage(slices);
+    hir = float(np.percentile(array, 100.0 - HIST_CUT_TOP));
+    array[array > hir] = hir;
+    filtered_slices = sitk.GetImageFromArray(array);
+    filtered_slices.SetSpacing(slices.GetSpacing());
+    filtered_slices.SetOrigin(slices.GetOrigin());
+    filtered_slices.SetDirection(slices.GetDirection());
+    # resampling the MR
+    resampler = sitk.ResampleImageFilter();
+    resampler.SetInterpolator(sitk.sitkLinear);
+    resampler.SetOutputDirection(filtered_slices.GetDirection());
+    resampler.SetOutputOrigin(filtered_slices.GetOrigin());
+    mov_spacing = filtered_slices.GetSpacing();
+    resampler.SetOutputSpacing(NEW_SPA);
+    RES_COE = np.array(mov_spacing) * 1.0 / np.array(new_spacing);
+    new_size = np.array(filtered_slices.GetSize()) * RES_COE;
+    resampler.SetSize([int(sz + 1) for sz in new_size]);
+    resampled_slices = resampler.Execute(filtered_slices);
+    # crop out rois
+    array = sitk.GetArrayFromImage(resampled_slices); # array.shape = (slice number, height, width)
+    array = np.transpose(array, (1,2,0)); # array.shape = (height, width, slice number)
+    expand_cropsize = [x + 1 for x in CROP_SIZE] + [array.shape[-1]]; # expand_cropsize = (height + 1, width + 1, slice number)
+    image_patch = np.ones(expand_cropsize) * np.min(array);
+    
+    # TODO
 
 def process_SABS(dataset_root):
     

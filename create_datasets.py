@@ -115,61 +115,6 @@ def copy_spacing_ori(src, dst):
     dst.SetDirection(src.GetDirection())
     return dst
 
-def process_CHAOST2(dataset_root):
-
-  for sid in listdir(dataset_root):
-    # process a MR
-    reader = sitk.ImageSeriesReader();
-    dicom_names = reader.GetGDCMSeriesFileNames(join(dataset_root, sid, "T2SPIR", "DICOM_anon"));
-    reader.SetFileNames(dicom_names);
-    slices = reader.Execute();
-    # process corresponding labels
-    labels = dict();
-    for f in listdir(join(dataset_root, sid, 'T2SPIR', 'Ground')):
-      if splitext(f)[1] == '.png':
-        label = cv2.imread(join(dataset_root, sid, 'T2SPIR', 'Ground', f));
-        if label is None:
-          print("label file %s is broken" % (join(dataset_root, sid, "T2SPIR", "Ground", f)));
-          continue;
-        idx = int(basename(f).split('-')[-1]);
-        labels[idx] = label;
-    labels = [t[1] for t in sorted(labels.items())];
-    labels = np.stack(labels, axis = 0); # labels.shape = (slice number, height, width)
-    labels = np.flip(labels, axis = 1);
-    for new_val, old_val in enumerate(sorted(np.unique(labels))):
-      labels[labels == old_val] = new_val;
-    labels = nio.np2itk(img = labels, ref_obj = slices);
-    # filtering over bright area
-    array = sitk.GetArrayFromImage(slices);
-    hir = float(np.percentile(array, 100.0 - HIST_CUT_TOP));
-    array[array > hir] = hir;
-    his_img_o = sitk.GetImageFromArray(array);
-    his_img_o = copy_spacing_ori(img_obj, his_img_o);
-    # resampling the MR
-    img_spa_ori = img_obj.GetSpacing()
-    res_img_o = resample_by_res(his_img_o, [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2]],
-                                interpolator = sitk.sitkLinear, logging = True);
-    # resampling the label
-    lb_arr = sitk.GetArrayFromImage(labels);
-    res_lb_o = resample_lb_by_res(labels,  [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2] ], interpolator = sitk.sitkLinear,
-                                  ref_img = None, logging = True);
-    # crop out rois
-    res_img_a = sitk.GetArrayFromImage(res_img_o);
-    crop_img_a = image_crop(res_img_a.transpose(1,2,0), [256, 256],
-                            referece_ctr_idx = [res_img_a.shape[1] // 2, res_img_a.shape[2] //2],
-                            padval = res_img_a.min(), only_2d = True).transpose(2,0,1);
-    out_img_obj = copy_spacing_ori(res_img_o, sitk.GetImageFromArray(crop_img_a));
-    res_lb_a = sitk.GetArrayFromImage(res_lb_o);
-    crop_lb_a = image_crop(res_lb_a.transpose(1,2,0), [256, 256],
-                            referece_ctr_idx = [res_lb_a.shape[1] // 2, res_lb_a.shape[2] //2],
-                            padval = 0, only_2d = True).transpose(2,0,1);
-    out_lb_obj = copy_spacing_ori(res_img_o, sitk.GetImageFromArray(crop_lb_a));
-    # out_img_obj  out_lb_obj
-
-def process_SABS(dataset_root):
-    
-  pass;
-
 def convert2foreground_segmentation(img, thresh = 1e-4):
 
   # img is the 3d image
@@ -219,6 +164,68 @@ def convert2foreground_segmentation(img, thresh = 1e-4):
   # fg_mask_vol: foreground mask with foreground 1, background 0
   # processed_seg_vol: foreground segmentation with label greater or equal 1, background 0
   return fg_mask_vol, processed_seg_vol;
+
+def process_CHAOST2(dataset_root):
+
+  for sid in listdir(dataset_root):
+    # read MR slices from dicom
+    reader = sitk.ImageSeriesReader();
+    dicom_names = reader.GetGDCMSeriesFileNames(join(dataset_root, sid, "T2SPIR", "DICOM_anon"));
+    reader.SetFileNames(dicom_names);
+    slices = reader.Execute();
+    # read the corresponding labels
+    labels = dict();
+    for f in listdir(join(dataset_root, sid, 'T2SPIR', 'Ground')):
+      if splitext(f)[1] == '.png':
+        label = cv2.imread(join(dataset_root, sid, 'T2SPIR', 'Ground', f));
+        if label is None:
+          print("label file %s is broken" % (join(dataset_root, sid, "T2SPIR", "Ground", f)));
+          continue;
+        idx = int(basename(f).split('-')[-1]);
+        labels[idx] = label;
+    labels = [t[1] for t in sorted(labels.items())];
+    labels = np.stack(labels, axis = 0); # labels.shape = (slice number, height, width)
+    labels = np.flip(labels, axis = 1);
+    for new_val, old_val in enumerate(sorted(np.unique(labels))):
+      labels[labels == old_val] = new_val;
+    labels = nio.np2itk(img = labels, ref_obj = slices);
+    # filtering over bright area
+    array = sitk.GetArrayFromImage(slices);
+    hir = float(np.percentile(array, 100.0 - HIST_CUT_TOP));
+    array[array > hir] = hir;
+    his_img_o = sitk.GetImageFromArray(array);
+    his_img_o = copy_spacing_ori(img_obj, his_img_o);
+    # resampling the MR
+    img_spa_ori = img_obj.GetSpacing()
+    res_img_o = resample_by_res(his_img_o, [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2]],
+                                interpolator = sitk.sitkLinear, logging = True);
+    # resampling the label
+    lb_arr = sitk.GetArrayFromImage(labels);
+    res_lb_o = resample_lb_by_res(labels,  [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2] ], interpolator = sitk.sitkLinear,
+                                  ref_img = None, logging = True);
+    # crop out rois
+    res_img_a = sitk.GetArrayFromImage(res_img_o);
+    crop_img_a = image_crop(res_img_a.transpose(1,2,0), [256, 256],
+                            referece_ctr_idx = [res_img_a.shape[1] // 2, res_img_a.shape[2] //2],
+                            padval = res_img_a.min(), only_2d = True).transpose(2,0,1);
+    out_img_obj = copy_spacing_ori(res_img_o, sitk.GetImageFromArray(crop_img_a));
+    res_lb_a = sitk.GetArrayFromImage(res_lb_o);
+    crop_lb_a = image_crop(res_lb_a.transpose(1,2,0), [256, 256],
+                            referece_ctr_idx = [res_lb_a.shape[1] // 2, res_lb_a.shape[2] //2],
+                            padval = 0, only_2d = True).transpose(2,0,1);
+    out_lb_obj = copy_spacing_ori(res_img_o, sitk.GetImageFromArray(crop_lb_a));
+    # generate foreground mask and foreground segmentation
+    fg_mask_vol, processed_seg_vol = convert2foreground_segmentation(sitk.GetArrayFromImage(out_img_obj));
+    out_fg_o = sitk.GetImageFromArray(fg_mask_vol);
+    out_seg_o = sitk.GetImageFromArray(processed_seg_vol);
+    out_fg_o = copy_spacing_ori(out_img_obj, out_fg_o);
+    out_seg_o = copy_spacing_ori(out_img_obj, out_seg_o);
+    # out_img_obj  out_lb_obj out_fg_o out_seg_o
+
+def process_SABS(dataset_root):
+    
+  pass;
+
 
 if __name__ == "__main__":
     

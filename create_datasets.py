@@ -71,6 +71,11 @@ def process_CHAOST2(dataset_root):
     array[reference_ctr_idx[0] - bias_start[0]:reference_ctr_idx[0] + bias_end[0],
           reference_ctr_idx[1] - bias_start[1]:reference_ctr_idx[1] + bias_end[1], ...];
     image_patch = image_patch[0:CROP_SIZE[0], 0:CROP_SIZE[1],:];
+    array = np.transpose(image_patch, (2, 0, 1));
+    cropped_slices = sitk.GetImageFromArray(array);
+    cropped_slices.SetSpacing(filtered_slices.GetSpacing());
+    cropped_slices.SetOrigin(filtered_slices.GetOrigin());
+    cropped_slices.SetDirection(filtered_slices.GetDirection());
     # TODO
 
 def process_SABS(dataset_root):

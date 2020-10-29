@@ -53,9 +53,24 @@ def process_CHAOST2(dataset_root):
     # crop out rois
     array = sitk.GetArrayFromImage(resampled_slices); # array.shape = (slice number, height, width)
     array = np.transpose(array, (1,2,0)); # array.shape = (height, width, slice number)
-    expand_cropsize = [x + 1 for x in CROP_SIZE] + [array.shape[-1]]; # expand_cropsize = (height + 1, width + 1, slice number)
+    expand_cropsize = [x + 1 for x in CROP_SIZE] + [array.shape[-1]]; # expand_cropsize = (256 + 1, 256 + 1, slice number)
     image_patch = np.ones(expand_cropsize) * np.min(array);
-    
+    half_size = tuple(np.array(expand_cropsize) // 2); # ((256 + 1) / 2, (256 + 1) / 2, slice_number / 2)
+    min_idx = [0, 0, 0];
+    max_idx = array.shape;
+    bias_start = [0, 0, 0];
+    bias_end = [0, 0, 0];
+    reference_ctr_idx = [array.shape[0] // 2, array.shape[1] // 2]; # (h / 2, w / 2)
+    for i in range(2):
+      bias_start[i] = np.min([half_size[i], reference_ctr_idx[i]]);
+      bias_end[i] = np.min([half_size[i], array.shape[i] - reference_ctr_idx[i]]);
+      min_idx[i] = reference_ctr_idx[i] - bias_start[i];
+      max_idx[i] = reference_ctr_idx[i] + bias_end[i];
+    image_patch[half_size[0] - bias_start[0]:half_size[0] + bias_end[0], \
+                half_size[1] - bias_start[1]:half_size[1] + bias_end[1], ...] = \
+    array[reference_ctr_idx[0] - bias_start[0]:reference_ctr_idx[0] + bias_end[0],
+          reference_ctr_idx[1] - bias_start[1]:reference_ctr_idx[1] + bias_end[1], ...];
+    image_patch = image_patch[0:CROP_SIZE[0], 0:CROP_SIZE[1],:];
     # TODO
 
 def process_SABS(dataset_root):

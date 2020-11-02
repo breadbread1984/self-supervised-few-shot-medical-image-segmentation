@@ -167,7 +167,7 @@ def convert2foreground_segmentation(img, thresh = 1e-4):
 
 def process_CHAOST2(dataset_root, trainset = True):
 
-  writer = tf.io.TFRecordWriter('train.tfrecord' if trainset else 'testset.tfrecord');
+  writer = tf.io.TFRecordWriter('trainset.tfrecord' if trainset else 'testset.tfrecord');
   if writer is None:
     print('invalid output file!');
     exit(1);
@@ -249,7 +249,7 @@ def process_CHAOST2(dataset_root, trainset = True):
             'superpix': tf.train.Feature(float_list = tf.train.FloatList(value = tf.reshape(seg, (-1,))))
           }
         ));
-      writer.write(trainsample);
+      writer.write(trainsample.SerializeToString());
   writer.close();
 
 def process_SABS(dataset_root):

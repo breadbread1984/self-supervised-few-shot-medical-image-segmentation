@@ -36,10 +36,9 @@ def parse_function_generator(with_label = True, use_superpix = False):
     if use_superpix:
       # choose a superpixel area
       label = tf.random.uniform(maxval = tf.cast(tf.math.reduce_max(feature['superpix']) + 1, dtype = tf.int32), dtype = tf.int32, shape = ());
-      superpixel = tf.where(tf.math.equal(feature['superpix'], tf.cast(label, dtype = tf.float32)), tf.ones_like(feature['superpix'], dtype = tf.float32), tf.zeros_like(feature['superpix'], dtype = tf.float32));
-      image_with_label = tf.stack([feature['image'], superpixel], axis = -1); # image_with_label.shape = (256, 256, 2)
+      label = tf.where(tf.math.equal(feature['superpix'], tf.cast(label, dtype = tf.float32)), tf.ones_like(feature['superpix'], dtype = tf.float32), tf.zeros_like(feature['superpix'], dtype = tf.float32)); # label.shape = (256, 256)
     else:
-      image_with_label = tf.stack([feature['image'], feature['label']], axis = -1); # image_with_label.shape = (256, 256, 2)
+      label = feature['label']; # label.shape = (256, 256)
     # data augmentation
     
     # TODO    

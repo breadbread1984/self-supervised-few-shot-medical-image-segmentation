@@ -191,7 +191,6 @@ def process_CHAOST2(dataset_root, trainset = True):
           labels[idx] = label;
       labels = [t[1] for t in sorted(labels.items())];
       labels = np.stack(labels, axis = 0); # labels.shape = (slice number, height, width)
-      labels = np.flip(labels, axis = 1);
       for new_val, old_val in enumerate(sorted(np.unique(labels))):
         labels[labels == old_val] = new_val;
       labels = sitk.GetImageFromArray(labels);

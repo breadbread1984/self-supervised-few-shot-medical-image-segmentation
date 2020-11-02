@@ -14,6 +14,23 @@ HIST_CUT_TOP = 0.5;
 NEW_SPA = [1.25, 1.25, 7.70]; # unified voxel spacing
 CROP_SIZE = [256, 256];
 
+def parse_function_generator(trainset = True)
+  def parse_function(serialized_example):
+
+    feature = tf.io.parse_single_example(
+      serialized_example,
+      features = {
+        'image': tf.io.FixedLenFeature((256, 256), dtype = tf.float32),
+        'label': tf.io.FixedLenFeature((256, 256), dtype = tf.float32),
+        'superpix': tf.io.FixedLenFeature((256, 256), dtype = tf.float32)
+      } if trainset == True else {
+        'image': tf.io.FixedLenFeature((256, 256), dtype = tf.float32),
+        'superpix': tf.io.FixedLenFeature((256, 256), dtype = tf.float32)        
+      }
+    );
+    return feature['image'], feature['label'], feature['superpix'];
+  return parse_function;
+
 # some helper functions
 def resample_by_res(mov_img_obj, new_spacing, interpolator = sitk.sitkLinear, logging = True):
     resample = sitk.ResampleImageFilter()

@@ -8,6 +8,7 @@ from skimage.measure import label; # label connected component
 import scipy.ndimage.morphology as snm; # morphology
 import SimpleITK as sitk;
 import cv2;
+import tensorflow as tf;
 
 HIST_CUT_TOP = 0.5;
 NEW_SPA = [1.25, 1.25, 7.70]; # unified voxel spacing
@@ -173,7 +174,8 @@ def process_CHAOST2(dataset_root, trainset = True):
   for sid in listdir(dataset_root):
     # read MR slices from dicom
     reader = sitk.ImageSeriesReader();
-    dicom_names = reader.GetGDCMSeriesFileNames(join(dataset_root, sid, "T2SPIR", "DICOM_anon"));
+    series = reader.GetGDCMSeriesIDs(join(dataset_root, sid, "T2SPIR", "DICOM_anon"));
+    dicom_names = reader.GetGDCMSeriesFileNames(join(dataset_root, sid, "T2SPIR", "DICOM_anon"), series[0]);
     reader.SetFileNames(dicom_names);
     slices = reader.Execute();
     if trainset == True:
@@ -185,7 +187,7 @@ def process_CHAOST2(dataset_root, trainset = True):
           if label is None:
             print("label file %s is broken" % (join(dataset_root, sid, "T2SPIR", "Ground", f)));
             continue;
-          idx = int(basename(f).split('-')[-1]);
+          idx = int(splitext(f)[0].split('-')[-1]);
           labels[idx] = label;
       labels = [t[1] for t in sorted(labels.items())];
       labels = np.stack(labels, axis = 0); # labels.shape = (slice number, height, width)
@@ -269,8 +271,8 @@ if __name__ == "__main__":
   trainset_root = argv[2];
   testset_root = argv[3];
   if argv[1] == 'CHAOST2':
-    process_CHAOST2(trainset_root, True);
-    process_CHAOST2(testset_root, False);
+    process_CHAOST2(join(trainset_root, 'MR'), True);
+    process_CHAOST2(join(testset_root, 'MR'), False);
   elif argv[1] == 'SABS':
     process_SABS(trainset_root, True);
     process_SABS(testset_root, False);

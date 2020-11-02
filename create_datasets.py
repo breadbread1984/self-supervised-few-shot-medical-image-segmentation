@@ -238,15 +238,15 @@ def process_CHAOST2(dataset_root, trainset = True):
         trainsample = tf.train.Example(features = tf.train.Features(
           feature = {
             'image': tf.train.Feature(float_list = tf.train.FloatList(value = tf.reshape(img, (-1,)))),
-            'label': tf.train.Feature(int64_list = tf.train.Int64List(value = tf.reshape(label, (-1,)))),
-            'superpix': tf.train.Feature(int64_list = tf.train.Int64List(value = tf.reshape(seg, (-1,))))
+            'label': tf.train.Feature(float_list = tf.train.FloatList(value = tf.reshape(label, (-1,)))),
+            'superpix': tf.train.Feature(float_list = tf.train.FloatList(value = tf.reshape(seg, (-1,))))
           }
         ));
       else:
         trainsample = tf.train.Example(features = tf.train.Features(
           feature = {
             'image': tf.train.Feature(float_list = tf.train.FloatList(value = tf.reshape(img, (-1,)))),
-            'superpix': tf.train.Feature(int64_list = tf.train.Int64List(value = tf.reshape(seg, (-1,))))
+            'superpix': tf.train.Feature(float_list = tf.train.FloatList(value = tf.reshape(seg, (-1,))))
           }
         ));
       writer.write(trainsample);

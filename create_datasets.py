@@ -14,7 +14,12 @@ HIST_CUT_TOP = 0.5;
 NEW_SPA = [1.25, 1.25, 7.70]; # unified voxel spacing
 CROP_SIZE = [256, 256];
 
-def parse_function_generator(trainset = True)
+def parse_function_generator(with_label = True, use_superpix = False):
+
+  # with_label: dataset has label
+  # use_superpix: output of the parse function uses superpixel
+  if with_label == False and use_superpix == False:
+    raise Exception('dataset has no label information!');
   def parse_function(serialized_example):
 
     feature = tf.io.parse_single_example(
@@ -23,11 +28,21 @@ def parse_function_generator(trainset = True)
         'image': tf.io.FixedLenFeature((256, 256), dtype = tf.float32),
         'label': tf.io.FixedLenFeature((256, 256), dtype = tf.float32),
         'superpix': tf.io.FixedLenFeature((256, 256), dtype = tf.float32)
-      } if trainset == True else {
+      } if with_label == True else {
         'image': tf.io.FixedLenFeature((256, 256), dtype = tf.float32),
         'superpix': tf.io.FixedLenFeature((256, 256), dtype = tf.float32)        
       }
     );
+    if use_superpix:
+      # choose a superpixel area
+      label = tf.random.uniform(maxval = tf.cast(tf.math.reduce_max(feature['superpix']) + 1, dtype = tf.int32), dtype = tf.int32, shape = ());
+      superpixel = tf.where(tf.math.equal(feature['superpix'], tf.cast(label, dtype = tf.float32)), tf.ones_like(feature['superpix'], dtype = tf.float32), tf.zeros_like(feature['superpix'], dtype = tf.float32));
+      image_with_label = tf.stack([feature['image'], superpixel], axis = -1); # image_with_label.shape = (256, 256, 2)
+    else:
+      image_with_label = tf.stack([feature['image'], feature['label']], axis = -1); # image_with_label.shape = (256, 256, 2)
+    # data augmentation
+    
+    # TODO    
     return feature['image'], feature['label'], feature['superpix'];
   return parse_function;
 
@@ -182,9 +197,9 @@ def convert2foreground_segmentation(img, thresh = 1e-4):
   # processed_seg_vol: foreground segmentation with label greater or equal 1, background 0
   return fg_mask_vol, processed_seg_vol;
 
-def process_CHAOST2(dataset_root, trainset = True):
+def process_CHAOST2(dataset_root, with_label = True):
 
-  writer = tf.io.TFRecordWriter('trainset.tfrecord' if trainset else 'testset.tfrecord');
+  writer = tf.io.TFRecordWriter('trainset.tfrecord' if with_label else 'testset.tfrecord');
   if writer is None:
     print('invalid output file!');
     exit(1);
@@ -195,7 +210,7 @@ def process_CHAOST2(dataset_root, trainset = True):
     dicom_names = reader.GetGDCMSeriesFileNames(join(dataset_root, sid, "T2SPIR", "DICOM_anon"), series[0]);
     reader.SetFileNames(dicom_names);
     slices = reader.Execute();
-    if trainset == True:
+    if with_label == True:
       # read the corresponding labels
       labels = dict();
       for f in listdir(join(dataset_root, sid, 'T2SPIR', 'Ground')):
@@ -222,7 +237,7 @@ def process_CHAOST2(dataset_root, trainset = True):
     res_img_o = resample_by_res(his_img_o, [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2]],
                                 interpolator = sitk.sitkLinear, logging = True);
     # resampling the label
-    if trainset == True:
+    if with_label == True:
       res_lb_o = resample_lb_by_res(labels,  [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2] ], interpolator = sitk.sitkLinear,
                                     ref_img = None, logging = True);
     # crop out rois
@@ -234,21 +249,21 @@ def process_CHAOST2(dataset_root, trainset = True):
     mean_val = tf.math.reduce_mean(crop_img_a, keepdims = True);
     std_val = tf.math.sqrt(tf.math.reduce_mean(tf.math.square(crop_img_a - mean_val), keepdims = True));
     crop_img_a = (crop_img_a - mean_val) / std_val;
-    if trainset == True:
+    if with_label == True:
       res_lb_a = sitk.GetArrayFromImage(res_lb_o);
       crop_lb_a = image_crop(res_lb_a.transpose(1,2,0), [256, 256],
                              referece_ctr_idx = [res_lb_a.shape[1] // 2, res_lb_a.shape[2] //2],
                              padval = 0, only_2d = True).transpose(2,0,1); # (slice number, height, width)
     # generate foreground mask and foreground segmentation
     fg_mask_vol, processed_seg_vol = convert2foreground_segmentation(crop_img_a);
-    if trainset == True: assert crop_img_a.shape[0] == crop_lb_a.shape[0];
+    if with_label == True: assert crop_img_a.shape[0] == crop_lb_a.shape[0];
     assert crop_img_a.shape[0] == processed_seg_vol.shape[0];
     for i in range(crop_img_a.shape[0]):
       img = crop_img_a[i];
       assert img.shape == (256, 256);
       seg = processed_seg_vol[i];
       assert seg.shape == (256, 256);
-      if trainset == True:
+      if with_label == True:
         label = crop_lb_a[i];
         assert label.shape == (256, 256);
         trainsample = tf.train.Example(features = tf.train.Features(

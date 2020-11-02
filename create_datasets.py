@@ -7,7 +7,6 @@ from skimage.segmentation import felzenszwalb; # graph cut
 from skimage.measure import label; # label connected component
 import scipy.ndimage.morphology as snm; # morphology
 import SimpleITK as sitk;
-import niftiio as nio;
 import cv2;
 
 HIST_CUT_TOP = 0.5;
@@ -165,30 +164,36 @@ def convert2foreground_segmentation(img, thresh = 1e-4):
   # processed_seg_vol: foreground segmentation with label greater or equal 1, background 0
   return fg_mask_vol, processed_seg_vol;
 
-def process_CHAOST2(dataset_root):
+def process_CHAOST2(dataset_root, trainset = True):
 
+  writer = tf.io.TFRecordWriter('train.tfrecord' if trainset else 'testset.tfrecord');
+  if writer is None:
+    print('invalid output file!');
+    exit(1);
   for sid in listdir(dataset_root):
     # read MR slices from dicom
     reader = sitk.ImageSeriesReader();
     dicom_names = reader.GetGDCMSeriesFileNames(join(dataset_root, sid, "T2SPIR", "DICOM_anon"));
     reader.SetFileNames(dicom_names);
     slices = reader.Execute();
-    # read the corresponding labels
-    labels = dict();
-    for f in listdir(join(dataset_root, sid, 'T2SPIR', 'Ground')):
-      if splitext(f)[1] == '.png':
-        label = cv2.imread(join(dataset_root, sid, 'T2SPIR', 'Ground', f));
-        if label is None:
-          print("label file %s is broken" % (join(dataset_root, sid, "T2SPIR", "Ground", f)));
-          continue;
-        idx = int(basename(f).split('-')[-1]);
-        labels[idx] = label;
-    labels = [t[1] for t in sorted(labels.items())];
-    labels = np.stack(labels, axis = 0); # labels.shape = (slice number, height, width)
-    labels = np.flip(labels, axis = 1);
-    for new_val, old_val in enumerate(sorted(np.unique(labels))):
-      labels[labels == old_val] = new_val;
-    labels = nio.np2itk(img = labels, ref_obj = slices);
+    if trainset == True:
+      # read the corresponding labels
+      labels = dict();
+      for f in listdir(join(dataset_root, sid, 'T2SPIR', 'Ground')):
+        if splitext(f)[1] == '.png':
+          label = cv2.imread(join(dataset_root, sid, 'T2SPIR', 'Ground', f));
+          if label is None:
+            print("label file %s is broken" % (join(dataset_root, sid, "T2SPIR", "Ground", f)));
+            continue;
+          idx = int(basename(f).split('-')[-1]);
+          labels[idx] = label;
+      labels = [t[1] for t in sorted(labels.items())];
+      labels = np.stack(labels, axis = 0); # labels.shape = (slice number, height, width)
+      labels = np.flip(labels, axis = 1);
+      for new_val, old_val in enumerate(sorted(np.unique(labels))):
+        labels[labels == old_val] = new_val;
+      labels = sitk.GetImageFromArray(labels);
+      labels = copy_spacing_ori(labels, slices);
     # filtering over bright area
     array = sitk.GetArrayFromImage(slices);
     hir = float(np.percentile(array, 100.0 - HIST_CUT_TOP));
@@ -200,27 +205,52 @@ def process_CHAOST2(dataset_root):
     res_img_o = resample_by_res(his_img_o, [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2]],
                                 interpolator = sitk.sitkLinear, logging = True);
     # resampling the label
-    lb_arr = sitk.GetArrayFromImage(labels);
-    res_lb_o = resample_lb_by_res(labels,  [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2] ], interpolator = sitk.sitkLinear,
-                                  ref_img = None, logging = True);
+    if trainset == True:
+      lb_arr = sitk.GetArrayFromImage(labels);
+      res_lb_o = resample_lb_by_res(lb_arr,  [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2] ], interpolator = sitk.sitkLinear,
+                                    ref_img = None, logging = True);
     # crop out rois
     res_img_a = sitk.GetArrayFromImage(res_img_o);
     crop_img_a = image_crop(res_img_a.transpose(1,2,0), [256, 256],
                             referece_ctr_idx = [res_img_a.shape[1] // 2, res_img_a.shape[2] //2],
-                            padval = res_img_a.min(), only_2d = True).transpose(2,0,1);
-    out_img_obj = copy_spacing_ori(res_img_o, sitk.GetImageFromArray(crop_img_a));
-    res_lb_a = sitk.GetArrayFromImage(res_lb_o);
-    crop_lb_a = image_crop(res_lb_a.transpose(1,2,0), [256, 256],
-                            referece_ctr_idx = [res_lb_a.shape[1] // 2, res_lb_a.shape[2] //2],
-                            padval = 0, only_2d = True).transpose(2,0,1);
-    out_lb_obj = copy_spacing_ori(res_img_o, sitk.GetImageFromArray(crop_lb_a));
+                            padval = res_img_a.min(), only_2d = True).transpose(2,0,1); # (slice number, height, width)
+    # how MR is normalized
+    mean_val = tf.math.reduce_mean(crop_img_a, keepdims = True);
+    std_val = tf.math.sqrt(tf.math.reduce_mean(tf.math.square(crop_img_a - mean_val), keepdims = True));
+    crop_img_a = (crop_img_a - mean_val) / std_val;
+    if trainset == True:
+      res_lb_a = sitk.GetArrayFromImage(res_lb_o);
+      crop_lb_a = image_crop(res_lb_a.transpose(1,2,0), [256, 256],
+                             referece_ctr_idx = [res_lb_a.shape[1] // 2, res_lb_a.shape[2] //2],
+                             padval = 0, only_2d = True).transpose(2,0,1); # (slice number, height, width)
     # generate foreground mask and foreground segmentation
-    fg_mask_vol, processed_seg_vol = convert2foreground_segmentation(sitk.GetArrayFromImage(out_img_obj));
-    out_fg_o = sitk.GetImageFromArray(fg_mask_vol);
-    out_seg_o = sitk.GetImageFromArray(processed_seg_vol);
-    out_fg_o = copy_spacing_ori(out_img_obj, out_fg_o);
-    out_seg_o = copy_spacing_ori(out_img_obj, out_seg_o);
-    # out_img_obj  out_lb_obj out_fg_o out_seg_o
+    fg_mask_vol, processed_seg_vol = convert2foreground_segmentation(crop_img_a);
+    if trainset == True: assert crop_img_a.shape[0] == crop_lb_a[0];
+    assert crop_img_a.shape[0] == processed_seg_vol.shape[0];
+    for i in range(crop_img_a.shape[0]):
+      img = crop_img_a[i];
+      assert img.shape == (256, 256);
+      seg = processed_seg_vol[i];
+      assert seg.shape == (256, 256);
+      if trainset == True:
+        label = crop_lb_a[i];
+        assert label.shape == (256, 256);
+        trainsample = tf.train.Example(features = tf.train.Features(
+          feature = {
+            'image': tf.train.Feature(float_list = tf.train.FloatList(value = tf.reshape(img, (-1,)))),
+            'label': tf.train.Feature(int64_list = tf.train.Int64List(value = tf.reshape(label, (-1,)))),
+            'superpix': tf.train.Feature(int64_list = tf.train.Int64List(value = tf.reshape(seg, (-1,))))
+          }
+        ));
+      else:
+        trainsample = tf.train.Example(features = tf.train.Features(
+          feature = {
+            'image': tf.train.Feature(float_list = tf.train.FloatList(value = tf.reshape(img, (-1,)))),
+            'superpix': tf.train.Feature(int64_list = tf.train.Int64List(value = tf.reshape(seg, (-1,))))
+          }
+        ));
+      writer.write(trainsample);
+  writer.close();
 
 def process_SABS(dataset_root):
     
@@ -230,14 +260,17 @@ def process_SABS(dataset_root):
 if __name__ == "__main__":
     
   from sys import argv;
-  if len(argv) != 3:
-    print("Usage: %s (CHAOST2|SABS) <dataset path>" % (argv[0]));
+  if len(argv) != 4:
+    print("Usage: %s (CHAOST2|SABS) <trainset path> <testset path>" % (argv[0]));
     exit(1);
   if argv[1] not in ['CHAOST2', 'SABS']:
     print('unknown dataset!');
     exit(1);
-  dataset_root = argv[2];
+  trainset_root = argv[2];
+  testset_root = argv[3];
   if argv[1] == 'CHAOST2':
-    process_CHAOST2(dataset_root);
+    process_CHAOST2(trainset_root, True);
+    process_CHAOST2(testset_root, False);
   elif argv[1] == 'SABS':
-    process_SABS(dataset_root);
+    process_SABS(trainset_root, True);
+    process_SABS(testset_root, False);

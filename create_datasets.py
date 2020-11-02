@@ -183,7 +183,7 @@ def process_CHAOST2(dataset_root, trainset = True):
       labels = dict();
       for f in listdir(join(dataset_root, sid, 'T2SPIR', 'Ground')):
         if splitext(f)[1] == '.png':
-          label = cv2.imread(join(dataset_root, sid, 'T2SPIR', 'Ground', f));
+          label = cv2.imread(join(dataset_root, sid, 'T2SPIR', 'Ground', f), cv2.IMREAD_GRAYSCALE);
           if label is None:
             print("label file %s is broken" % (join(dataset_root, sid, "T2SPIR", "Ground", f)));
             continue;
@@ -195,21 +195,19 @@ def process_CHAOST2(dataset_root, trainset = True):
       for new_val, old_val in enumerate(sorted(np.unique(labels))):
         labels[labels == old_val] = new_val;
       labels = sitk.GetImageFromArray(labels);
-      labels = copy_spacing_ori(labels, slices);
+      labels = copy_spacing_ori(slices, labels);
     # filtering over bright area
     array = sitk.GetArrayFromImage(slices);
     hir = float(np.percentile(array, 100.0 - HIST_CUT_TOP));
     array[array > hir] = hir;
     his_img_o = sitk.GetImageFromArray(array);
-    his_img_o = copy_spacing_ori(img_obj, his_img_o);
+    his_img_o = copy_spacing_ori(slices, his_img_o);
     # resampling the MR
-    img_spa_ori = img_obj.GetSpacing()
     res_img_o = resample_by_res(his_img_o, [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2]],
                                 interpolator = sitk.sitkLinear, logging = True);
     # resampling the label
     if trainset == True:
-      lb_arr = sitk.GetArrayFromImage(labels);
-      res_lb_o = resample_lb_by_res(lb_arr,  [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2] ], interpolator = sitk.sitkLinear,
+      res_lb_o = resample_lb_by_res(labels,  [NEW_SPA[0], NEW_SPA[1], NEW_SPA[2] ], interpolator = sitk.sitkLinear,
                                     ref_img = None, logging = True);
     # crop out rois
     res_img_a = sitk.GetArrayFromImage(res_img_o);
@@ -227,7 +225,7 @@ def process_CHAOST2(dataset_root, trainset = True):
                              padval = 0, only_2d = True).transpose(2,0,1); # (slice number, height, width)
     # generate foreground mask and foreground segmentation
     fg_mask_vol, processed_seg_vol = convert2foreground_segmentation(crop_img_a);
-    if trainset == True: assert crop_img_a.shape[0] == crop_lb_a[0];
+    if trainset == True: assert crop_img_a.shape[0] == crop_lb_a.shape[0];
     assert crop_img_a.shape[0] == processed_seg_vol.shape[0];
     for i in range(crop_img_a.shape[0]):
       img = crop_img_a[i];

@@ -73,6 +73,8 @@ def parse_function_generator(with_label = True, use_superpix = False):
     image = image_with_label[...,0]; # image.shape = (1, 256, 256)
     image = tf.image.adjust_gamma(image, gamma = tf.random.uniform(low = 0.5, high = 1.5, shape = ()));
     image = tf.squeeze(image, axis = 0); # image.shape = (256, 256)
+    # NOTE: to fit resnet50's input shape
+    image = tf.tile(tf.expand_dims(image, axis = -1), (1, 1, 3)); # image.shape = (256, 256, 3)
     label = tf.squeeze(label, axis = 0); # label.shape = (256, 256)
     return image, label;
   return parse_function;

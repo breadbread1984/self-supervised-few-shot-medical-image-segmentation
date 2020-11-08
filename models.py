@@ -43,12 +43,20 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, nam
     else:
       raise Exception('unknown mode!');
 
+def ResNet50(input_shape):
+
+  inputs = tf.keras.Input(input_shape);
+  resnet50 = tf.keras.applications.ResNet50(input_tensor = inputs, weights = 'imagenet', include_top = False);
+  return tf.keras.Model(inputs = inputs, outputs = (resnet50.get_layer('conv4_block6_2_relu').output, resnet50.get_layer('conv2_block3_2_relu').output), name = 'resnet50');
+
 class FewShotSegmentation(tf.keras.Model):
 
-  def __init__(self, height, width, thresh = 0.95, name = 'few_shot_segmentation', **kwargs):
+  def __init__(self, height, width, thresh = 0.95, name = 'few_shot_segmentation', pretrain = None, **kwargs):
 
     super(FewShotSegmentation, self).__init__(name = name, ** kwargs);
-    self.resnet101 = tf.keras.applications.ResNet101(include_top = False, weights = 'imagenet');
+    self.resnet50 = ResNet50((height, width, 3));
+    if pretrain is not None:
+      self.resnet50.load_weights('pretrain.h5');
     self.conv = tf.keras.layers.Conv2D(filters = 256, kernel_size = (1, 1));
     self.thresh = thresh;
 
@@ -61,7 +69,7 @@ class FewShotSegmentation(tf.keras.Model):
     query, support, labels, with_loss = inputs;
     assert with_loss.dtype == tf.bool;
     imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + qn, h, w, 3)
-    img_fts = self.conv(self.resnet101(imgs_concat)); # img_fts.shape = (nshot + 1, nh, nw, 256)
+    img_fts = self.conv(self.resnet50(imgs_concat)[0]); # img_fts.shape = (nshot + 1, nh, nw, 256)
     supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, query.shape[0]), axis = 0))(img_fts); # supp_fts.shape = (nshot, nh, nw, 256), qry_fts.shape = (qn, nh, nw, 256)
     ds_labels = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = x[1].shape[1:3]))([labels, img_fts]); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)
     ds_bg, ds_fg = tf.keras.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(ds_labels); # ds_bg.shape = (nshot, nh, nw, 1), ds_fg.shape = (nshot, nh, nw, foreground number)

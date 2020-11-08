@@ -9,6 +9,7 @@ import scipy.ndimage.morphology as snm; # morphology
 import SimpleITK as sitk;
 import cv2;
 import tensorflow as tf;
+import tensorflow_addons as tfa;
 
 HIST_CUT_TOP = 0.5;
 NEW_SPA = [1.25, 1.25, 7.70]; # unified voxel spacing
@@ -37,12 +38,30 @@ def parse_function_generator(with_label = True, use_superpix = False):
       # choose a superpixel area
       label = tf.random.uniform(maxval = tf.cast(tf.math.reduce_max(feature['superpix']) + 1, dtype = tf.int32), dtype = tf.int32, shape = ());
       label = tf.where(tf.math.equal(feature['superpix'], tf.cast(label, dtype = tf.float32)), tf.ones_like(feature['superpix'], dtype = tf.float32), tf.zeros_like(feature['superpix'], dtype = tf.float32)); # label.shape = (256, 256)
+      # pseudo label has values in {'background': 0, 'superpix foreground': 1}
     else:
       label = feature['label']; # label.shape = (256, 256)
+      # real label has values in {'background': 0, 'liver': 1, 'right kidney': 2, 'left kidney': 3, 'spleen': 4}
+    image_with_label = tf.stack([feature['image'], label], axis = -1); # image_with_label.shape = (256, 256, 2)
     # data augmentation
+    # 1) flip
+    image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[::-1,...], lambda: image_with_label);
+    image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[:,::-1,...], lambda: image_with_label);
+    # 2) affine
+    image_with_label = tf.expand_dims(image_with_label, axis = 0);
+    # rotation
+    image_with_label = tfa.image.rotate(image_with_label, tf.random.uniform(low = -30, high = 30, shape = ()));
+    # translate
+    image_with_label = tfa.image.translate(image_with_label, tf.random.uniform(low = -5, high = 5, shape = (2,)));
+    # shear
+    image_with_label = tfa.image.shear_x(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ()));
+    image_with_label = tfa.image.shear_y(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ()));
+    # zoom
+    scale = tf.random.uniform(low = 0.9, high = 1.2, shape = ());
+    image_with_label = tf.image.resize(image_with_label, (image_with_label.shape[1] * scale, image_with_label.shape[2] * scale));
+    image_with_label = tf.squeeze(image_with_label, axis = 0);
     
-    # TODO    
-    return feature['image'], feature['label'], feature['superpix'];
+    return image_with_label[...,:-1], image_with_label[...,-1:];
   return parse_function;
 
 # some helper functions

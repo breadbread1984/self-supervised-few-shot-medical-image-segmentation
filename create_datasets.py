@@ -47,24 +47,24 @@ def parse_function_generator(with_label = True, use_superpix = False):
     # 1) flip
     image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[::-1,...], lambda: image_with_label);
     image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[:,::-1,...], lambda: image_with_label);
-    # 2) affine
+    # 2) geometric augmentation
     image_with_label = tf.expand_dims(image_with_label, axis = 0);
-    # 3) rotation
+    # rotation
     image_with_label = tfa.image.rotate(image_with_label, tf.random.uniform(low = -30, high = 30, shape = ()));
-    # 4) translate
+    # translate
     image_with_label = tfa.image.translate(image_with_label, tf.random.uniform(low = -5, high = 5, shape = (2,)));
-    # 5) shear
+    # shear
     image_with_label = tfa.image.shear_x(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ()));
     image_with_label = tfa.image.shear_y(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ()));
-    # 6) zoom
+    # zoom
     scale = tf.random.uniform(low = 0.9, high = 1.2, shape = ());
     image_with_label = tf.image.resize(image_with_label, (image_with_label.shape[1] * scale, image_with_label.shape[2] * scale));
     label = tf.clip_by_value(tf.math.round(image_with_label[...,-1]), 0, 1); # label.shape = (1, 256, 256)
-    # 7) intensity
+    # 3) intensity augmentation
     image = image_with_label[...,0]; # image.shape = (1, 256, 256)
     # TODO
-    image = tf.squeeze(image, axis = 0);
-    label = tf.squeeze(label, axis = 0);
+    image = tf.squeeze(image, axis = 0); # image.shape = (256, 256)
+    label = tf.squeeze(label, axis = 0); # label.shape = (256, 256)
     return image, label;
   return parse_function;
 

@@ -59,8 +59,17 @@ def parse_function_generator(with_label = True, use_superpix = False):
     # zoom
     scale = tf.random.uniform(low = 0.9, high = 1.2, shape = ());
     image_with_label = tf.image.resize(image_with_label, (image_with_label.shape[1] * scale, image_with_label.shape[2] * scale));
-    label = tf.clip_by_value(tf.math.round(image_with_label[...,-1]), 0, 1); # label.shape = (1, 256, 256)
+    # elastic transform
+    dx = tfa.image.gaussian_filter2d(tf.random.uniform(low = -1, high = 1, shape = (image_with_label.shape[1], image_with_label.shape[2])), sigma = 5) * 10; # dx.shape = (height, width)
+    dy = tfa.image.gaussian_filter2d(tf.random.uniform(low = -1, high = 1, shape = (image_with_label.shape[1], image_with_label.shape[2])), sigma = 5) * 10; # dy.shape = (height, width)
+    y = tf.tile(tf.expand_dims(tf.range(tf.cast(image_with_label.shape[1], dtype = tf.float32), dtype = tf.float32), axis = -1), (1, image_with_label.shape[2])); # y.shape = (height, width)
+    x = tf.tile(tf.expand_dims(tf.range(tf.cast(image_with_label.shape[2], dtype = tf.float32), dtype = tf.float32), axis = 0), (image_with_label.shape[1], 1)); # x.shape = (height, width)
+    from_y = tf.clip_by_value(y + dy, 0, image_with_label.shape[0]); # new_y.shape = (height, width)
+    from_x = tf.clip_by_value(x + dx, 0, image_with_label.shape[1]); # new_x.shape = (height, width)
+    from_yx = tf.stack([from_y, from_x], axis = -1); # from_yx.shape = (height, width, 2)
+    image_with_label = tf.gather_nd(image_with_label, from_yx); # image_with_label.shape = (height, width, 2)
     # 3) intensity augmentation
+    label = tf.clip_by_value(tf.math.round(image_with_label[...,-1]), 0, 1); # label.shape = (1, 256, 256)
     image = image_with_label[...,0]; # image.shape = (1, 256, 256)
     image = tf.image.adjust_gamma(image, gamma = tf.random.uniform(low = 0.5, high = 1.5, shape = ()));
     image = tf.squeeze(image, axis = 0); # image.shape = (256, 256)

@@ -61,8 +61,8 @@ def parse_function_generator(with_label = True, use_superpix = False):
     image_with_label = tf.image.resize(image_with_label, (image_with_label.shape[1] * scale, image_with_label.shape[2] * scale));
     label = tf.clip_by_value(tf.math.round(image_with_label[...,-1]), 0, 1); # label.shape = (1, 256, 256)
     # 3) intensity augmentation
-    image = image_with_label[...,0]; # image.shape = (1, 256, 256)
-    # TODO
+    image = image_with_label[...,:-1]; # image.shape = (1, 256, 256, 1)
+    image = tf.image.adjust_gamma(image, gamma = tf.random.uniform(low = 0.5, high = 1.5, shape = ()));
     image = tf.squeeze(image, axis = 0); # image.shape = (256, 256)
     label = tf.squeeze(label, axis = 0); # label.shape = (256, 256)
     return image, label;

@@ -45,20 +45,25 @@ def parse_function_generator(with_label = True, use_superpix = False):
     image_with_label = tf.stack([feature['image'], label], axis = -1); # image_with_label.shape = (256, 256, 2)
     # data augmentation
     # 1) flip
-    image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[::-1,...], lambda: image_with_label);
-    image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[:,::-1,...], lambda: image_with_label);
+    image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[::-1,...], lambda: image_with_label); # image_with_label.shape = (256, 256, 2)
+    image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[:,::-1,...], lambda: image_with_label); # image_with_label.shape = (256, 256, 2)
     # 2) geometric augmentation
-    image_with_label = tf.expand_dims(image_with_label, axis = 0);
+    image_with_label = tf.expand_dims(image_with_label, axis = 0); # image_with_label.shape = (1, 256, 256, 2)
     # rotation
-    image_with_label = tfa.image.rotate(image_with_label, tf.random.uniform(low = -30, high = 30, shape = ()));
+    image_with_label = tfa.image.rotate(image_with_label, tf.random.uniform(low = -30, high = 30, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
     # translate
-    image_with_label = tfa.image.translate(image_with_label, tf.random.uniform(low = -5, high = 5, shape = (2,)));
+    image_with_label = tfa.image.translate(image_with_label, tf.random.uniform(low = -5, high = 5, shape = (2,))); # image_with_label.shape = (1, 256, 256, 2)
     # shear
-    image_with_label = tfa.image.shear_x(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ()));
-    image_with_label = tfa.image.shear_y(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ()));
+    image_with_label = tfa.image.shear_x(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
+    image_with_label = tfa.image.shear_y(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
     # zoom
     scale = tf.random.uniform(low = 0.9, high = 1.2, shape = ());
-    image_with_label = tf.image.resize(image_with_label, (image_with_label.shape[1] * scale, image_with_label.shape[2] * scale));
+    zoom_affine = tf.constant([scale, 0, (1 - scale) * image_with_label.shape[2] / 2, 0, scale, (1 - scale) * image_with_label.shape[1] / 2], dtype = tf.float32);
+    image = image_with_label[..., 0:1]; # image.shape = (1, 256, 256, 1)
+    label = image_with_label[..., 1:2]; # label.shape = (1, 256, 256, 1)
+    image = tfa.image.transform(image, zoom_affine, interpolation = 'BILINEAR', (image_with_label.shape[1], image_with_label.shape[2]));
+    label = tfa.image.transform(label, zoom_affine, interpolation = 'NEAREST', (image_with_label.shape[1], image_with_label.shape[2]));
+    image_with_label = tf.concat([image, label], axis = -1); # image_with_label.shape = (1, h, w, 2)
     # elastic transform
     dx = tfa.image.gaussian_filter2d(tf.random.uniform(low = -1, high = 1, shape = (image_with_label.shape[1], image_with_label.shape[2])), sigma = 5) * 10; # dx.shape = (height, width)
     dy = tfa.image.gaussian_filter2d(tf.random.uniform(low = -1, high = 1, shape = (image_with_label.shape[1], image_with_label.shape[2])), sigma = 5) * 10; # dy.shape = (height, width)

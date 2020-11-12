@@ -58,11 +58,11 @@ def parse_function_generator(with_label = True, use_superpix = False):
     image_with_label = tfa.image.shear_y(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
     # zoom
     scale = tf.random.uniform(low = 0.9, high = 1.2, shape = ());
-    zoom_affine = tf.constant([scale, 0, (1 - scale) * image_with_label.shape[2] / 2, 0, scale, (1 - scale) * image_with_label.shape[1] / 2], dtype = tf.float32);
+    zoom_affine = tf.constant([scale, 0, (1 - scale) * image_with_label.shape[2] / 2, 0, scale, (1 - scale) * image_with_label.shape[1] / 2, 0, 0], dtype = tf.float32);
     image = image_with_label[..., 0:1]; # image.shape = (1, 256, 256, 1)
     label = image_with_label[..., 1:2]; # label.shape = (1, 256, 256, 1)
-    image = tfa.image.transform(image, zoom_affine, interpolation = 'BILINEAR', (image_with_label.shape[1], image_with_label.shape[2]));
-    label = tfa.image.transform(label, zoom_affine, interpolation = 'NEAREST', (image_with_label.shape[1], image_with_label.shape[2]));
+    image = tfa.image.transform(image, zoom_affine, interpolation = 'BILINEAR', output_shape = (image_with_label.shape[1], image_with_label.shape[2]));
+    label = tfa.image.transform(label, zoom_affine, interpolation = 'NEAREST', output_shape = (image_with_label.shape[1], image_with_label.shape[2]));
     image_with_label = tf.concat([image, label], axis = -1); # image_with_label.shape = (1, h, w, 2)
     # elastic transform
     dx = tfa.image.gaussian_filter2d(tf.random.uniform(low = -1, high = 1, shape = (image_with_label.shape[1], image_with_label.shape[2])), sigma = 5) * 10; # dx.shape = (height, width)

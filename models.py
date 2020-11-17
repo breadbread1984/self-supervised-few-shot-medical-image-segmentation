@@ -43,18 +43,68 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, nam
     else:
       raise Exception('unknown mode!');
 
-def ResNet50(input_shape):
+def Bottleneck(input_shape, filters, stride = 1, dilation = 1):
 
+  # NOTE: either stride or dilation can be over 1
   inputs = tf.keras.Input(input_shape);
-  resnet50 = tf.keras.applications.ResNet50(input_tensor = inputs, weights = 'imagenet', include_top = False);
-  return tf.keras.Model(inputs = inputs, outputs = (resnet50.get_layer('conv4_block6_2_relu').output, resnet50.get_layer('conv2_block3_2_relu').output), name = 'resnet50');
+  residual = inputs;
+  results = tf.keras.layers.Conv2D(filters, (1, 1), padding = 'same', use_bias = False)(inputs);
+  results = tf.keras.layers.BatchNormalization()(results);
+  results = tf.keras.layers.ReLU()(results);
+  results = tf.keras.layers.Conv2D(filters, (3, 3), padding = 'same', strides = (stride, stride), dilation_rate = (dilation, dilation), use_bias = False)(results);
+  results = tf.keras.layers.BatchNormalization()(results);
+  results = tf.keras.layers.ReLU()(results);
+  results = tf.keras.layers.Conv2D(filters * 4, (1, 1), padding = 'same', use_bias = False)(results);
+  results = tf.keras.layers.BatchNormalization()(results);
+  if stride != 1 or inputs.shape[-1] != results.shape[-1]:
+    residual = tf.keras.layers.Conv2D(filters * 4, (1, 1), padding = 'same', strides = (stride, stride), use_bias = False)(residual);
+    residual = tf.keras.layers.BatchNormalization()(residual);
+  results = tf.keras.layers.Add()([results, residual]);
+  results = tf.keras.layers.ReLU()(results);
+  return tf.keras.Model(inputs = inputs, outputs = results);
+
+def ResNetAtrous(layer_nums = [3, 4, 6, 3], dilations = [1, 2, 1]):
+
+  strides = [2, 2, 1];
+  assert layer_nums[-1] == len(dilations);
+  assert len(layer_nums) == 1 + len(strides);
+  inputs = tf.keras.Input((None, None, 3));
+  results = tf.keras.layers.Conv2D(64, (7, 7), strides = (2,2), padding = 'same', use_bias = False)(inputs);
+  results = tf.keras.layers.BatchNormalization()(results);
+  results = tf.keras.layers.ReLU()(results);
+  results = tf.keras.layers.MaxPool2D(pool_size = (3,3), strides = (2,2), padding = 'same')(results);
+  def make_layer(inputs, filters, layer_num, stride = 1, dilations = None):
+    assert type(dilations) is list or dilations is None;
+    results = inputs;
+    for i in range(layer_num):
+      results = Bottleneck(results.shape[1:], filters, stride = stride if i == 0 else 1, dilation = dilations[i] if dilations is not None else 1)(results);
+    return results;
+  outputs1 = make_layer(results, 64, layer_nums[0]);
+  results = make_layer(outputs1, 128, layer_nums[1], stride = strides[0]);
+  results = make_layer(results, 256, layer_nums[2], stride = strides[1], dilations = [1] * layer_nums[2]);
+  outputs2 = make_layer(results, 512, layer_nums[3], stride = strides[2], dilations = dilations);
+  return tf.keras.Model(inputs = inputs, outputs = (outputs1, outputs2));
+
+def ResNet50Atrous():
+
+  # NOTE: (3 + 4 + 6 + 3) * 3 + 2 = 50
+  inputs = tf.keras.Input((None, None, 3));
+  results = ResNetAtrous([3, 4, 6, 3], [1, 2, 1])(inputs);
+  return tf.keras.Model(inputs = inputs, outputs = results, name = 'resnet50');
+
+def ResNet101Atrous():
+
+  # NOTE: (3 + 4 + 23 + 3) * 3 + 2 = 101
+  inputs = tf.keras.Input((None, None, 3));
+  results = ResNetAtrous([3, 4, 23, 3], [2, 2, 2])(inputs);
+  return tf.keras.Model(inputs = inputs, outputs = results, name = 'resnet101');
 
 class FewShotSegmentation(tf.keras.Model):
 
-  def __init__(self, height, width, thresh = 0.95, name = 'few_shot_segmentation', pretrain = None, **kwargs):
+  def __init__(self, thresh = 0.95, name = 'few_shot_segmentation', pretrain = None, **kwargs):
 
     super(FewShotSegmentation, self).__init__(name = name, ** kwargs);
-    self.resnet50 = ResNet50((height, width, 3));
+    self.resnet50 = ResNet50Atrous();
     if pretrain is not None:
       self.resnet50.load_weights('pretrain.h5');
     self.conv = tf.keras.layers.Conv2D(filters = 256, kernel_size = (1, 1));
@@ -69,7 +119,7 @@ class FewShotSegmentation(tf.keras.Model):
     query, support, labels, with_loss = inputs;
     assert with_loss.dtype == tf.bool;
     imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + qn, h, w, 3)
-    img_fts = self.conv(self.resnet50(imgs_concat)[0]); # img_fts.shape = (nshot + 1, nh, nw, 256)
+    img_fts = self.conv(self.resnet50(imgs_concat)[1]); # img_fts.shape = (nshot + 1, nh, nw, 256)
     supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, query.shape[0]), axis = 0))(img_fts); # supp_fts.shape = (nshot, nh, nw, 256), qry_fts.shape = (qn, nh, nw, 256)
     ds_labels = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = x[1].shape[1:3]))([labels, img_fts]); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)
     ds_bg, ds_fg = tf.keras.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(ds_labels); # ds_bg.shape = (nshot, nh, nw, 1), ds_fg.shape = (nshot, nh, nw, foreground number)
@@ -118,7 +168,7 @@ if __name__ == "__main__":
   alpnet = ALPNet(480, 640, mode = 'gridconv+');
   b = alpnet([q,s,l]);
   alpnet.save('gridconv+.h5');
-  fss = FewShotSegmentation(480, 640);
+  fss = FewShotSegmentation();
   q = np.random.normal(size = (8, 480, 640, 3));
   s = np.random.normal(size = (10, 480, 640, 3));
   l = np.random.randint(low = 0, high = 2, size = (10, 480, 640, 11));

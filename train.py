@@ -53,7 +53,7 @@ def main():
       continue;
     optimizer.apply_gradients(zip(grads, fewshot.trainable_variables));
     train_loss.update_state(loss);
-    train_accuracy.update_state(labels, preds);
+    train_accuracy.update_state(query_label, preds);
     if tf.equal(optimizer.iterations % 10000, 0):
       # save checkpoint
       checkpoint.save(join('checkpoints', 'ckpt'));
@@ -70,6 +70,14 @@ def main():
         if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(query), tf.math.is_inf(query))) == True:
           print('detected nan in query, skip current iterations');
           continue;
+        test_loss.update_state(loss);
+        test_accuracy.update_state(query_label, preds);
+      # write log
+      with log.as_default():
+        tf.summary.scalar('train loss', train_loss.result(), step = optimizer.iterations);
+        tf.summary.scalar('train accuracy', train_accuracy.result(), step = optimizer.iterations);
+        tf.summary.scalar('test loss', test_loss.result(), step = optimizer.iterations);
+        tf.summary.scalar('test accuracy', test_accuracy.result(), step = optimizer.iterations);
         
 
 if __name__ == "__main__":

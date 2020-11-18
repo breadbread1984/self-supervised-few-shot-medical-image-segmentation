@@ -149,7 +149,7 @@ class FewShotSegmentation(tf.keras.Model):
         scores.append(fg_raw_score);
       scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (nshot, nh, nw, 1 + foreground number)
       supp_pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3]))([scores, labels]); # supp_pred.shape = (nshot, h, w, 1 + foreground)
-      loss = tf.keras.losses.CategoricalCrossentropy(labels, supp_pred);
+      loss = tf.keras.losses.SparseCategoricalCrossentropy(labels, supp_pred);
     return pred if with_loss == False else pred, loss;
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@ import tensorflow as tf;
 from models import FewShotSegmentation;
 from create_datasets import parse_function_generator;
 
+batch_size = 32;
+
 def main():
 
   fewshot = FewShotSegmentation();
@@ -29,12 +31,46 @@ def main():
     support, supp_label, query, query_label = next(trainset_iter);
     with tf.GradientTape() as tape:
       if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(support), tf.math.is_inf(support))) == True:
-        print('detect nan in support, skip current iterations');
+        print('detected nan in support, skip current iterations');
+        continue;
       if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(supp_label), tf.math.is_inf(supp_label))) == True:
-        print('detect nan in supp_label, skip current iterations');
+        print('detected nan in supp_label, skip current iterations');
+        continue;
       if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(query), tf.math.is_inf(query))) == True:
-        print('detect nan in query, skip current iterations');
-      
+        print('detected nan in query, skip current iterations');
+        continue;
+      preds, loss = fewshot(query, support, supp_label);
+      if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(preds), tf.math.is_inf(preds))) == True:
+        print('detected nan in preds, skip current iterations');
+        pdb.set_trace();
+        continue;
+      if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(loss), tf.math.is_inf(loss))) == True:
+        print('detected nan in loss, skip current iterations');
+        continue;
+    grads = tape.gradient(loss, fewshot.trainable_variables);
+    if tf.math.reduce_any([tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(grad), tf.math.is_inf(grad))) for grad in grads]) == True:
+      print('detected nan in grads, skip current iterations');
+      continue;
+    optimizer.apply_gradients(zip(grads, fewshot.trainable_variables));
+    train_loss.update_state(loss);
+    train_accuracy.update_state(labels, preds);
+    if tf.equal(optimizer.iterations % 10000, 0):
+      # save checkpoint
+      checkpoint.save(join('checkpoints', 'ckpt'));
+    if tf.equal(optimizer.iterations % 1000, 0):
+      # evaluate
+      for i in range(10):
+        support, supp_label, query, query_label = next(testset_iter);
+        if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(support), tf.math.is_inf(support))) == True:
+          print('detected nan in support, skip current iterations');
+          continue;
+        if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(supp_label), tf.math.is_inf(supp_label))) == True:
+          print('detected nan in supp_label, skip current iterations');
+          continue;
+        if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(query), tf.math.is_inf(query))) == True:
+          print('detected nan in query, skip current iterations');
+          continue;
+        
 
 if __name__ == "__main__":
 

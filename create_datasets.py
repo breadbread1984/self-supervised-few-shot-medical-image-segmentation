@@ -57,7 +57,7 @@ def parse_function_generator(with_label = True, use_superpix = False):
       image_with_label = tfa.image.translate(image_with_label, tf.random.uniform(minval = -5, maxval = 5, shape = (2,))); # image_with_label.shape = (1, 256, 256, 2)
       # shear
       shear_angle = tf.random.uniform(minval = -5 * pi / 180, maxval = 5 * pi / 180, shape = ());
-      shear_affine = tf.constant([1, -tf.math.sin(shear_angle), 0, 0, tf.math.cos(shear_angle), 0, 0, 0], dtype = tf.float32);
+      shear_affine = tf.constant([1, -tf.math.sin(shear_angle).numpy(), 0, 0, tf.math.cos(shear_angle).numpy(), 0, 0, 0], dtype = tf.float32);
       image = image_with_label[..., 0:1]; # image.shape = (1, 256, 256, 1)
       label = image_with_label[..., 1:2]; # label.shape = (1, 256, 256, 1)
       image = tfa.image.transform(image, shear_affine, interpolation = 'BILINEAR', output_shape = (image_with_label.shape[1], image_with_label.shape[2]));

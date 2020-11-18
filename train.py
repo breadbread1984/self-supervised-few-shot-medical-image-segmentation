@@ -17,8 +17,8 @@ def main():
   train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name = 'train accuracy');
   test_loss = tf.keras.metrics.Mean(name = 'test loss', dtype = tf.float32);
   test_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name = 'test accuracy');
-  trainset = tf.data.TFRecordDataset('trainset.tfrecord').repeat(-1).map(parse_function_generator(with_label == True, use_superpix == True)).shuffle(batch_size).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE);
-  testset = tf.data.TFRecordDataset('testset.tfrecord').repeat(-1).map(parse_function_generator(with_label == False, use_superpix == True)).shuffle(batch_size).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE);
+  trainset = tf.data.TFRecordDataset('trainset.tfrecord').repeat(-1).map(parse_function_generator(with_label = True, use_superpix = True)).shuffle(batch_size).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE);
+  testset = tf.data.TFRecordDataset('testset.tfrecord').repeat(-1).map(parse_function_generator(with_label = False, use_superpix = True)).shuffle(batch_size).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE);
   trainset_iter = iter(trainset);
   testset_iter = iter(testset);
   # checkpoint

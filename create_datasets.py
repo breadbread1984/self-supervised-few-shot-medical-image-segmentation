@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
-from os import listdir;
-from os.path import join, splitext, basename;
+from os import listdir, mkdir;
+from os.path import join, splitext, basename, exists;
 from math import pi;
 import numpy as np;
 from skimage.segmentation import felzenszwalb; # graph cut
@@ -248,7 +248,8 @@ def convert2foreground_segmentation(img, thresh = 1e-4):
 
 def process_CHAOST2(dataset_root, with_label = True):
 
-  writer = tf.io.TFRecordWriter('trainset.tfrecord' if with_label else 'testset.tfrecord');
+  if False == exists('datasets'): mkdir('datasets');
+  writer = tf.io.TFRecordWriter(join('datasets', 'trainset.tfrecord' if with_label else 'testset.tfrecord'));
   if writer is None:
     print('invalid output file!');
     exit(1);

@@ -42,46 +42,50 @@ def parse_function_generator(with_label = True, use_superpix = False):
     else:
       label = feature['label']; # label.shape = (256, 256)
       # real label has values in {'background': 0, 'liver': 1, 'right kidney': 2, 'left kidney': 3, 'spleen': 4}
-    image_with_label = tf.stack([feature['image'], label], axis = -1); # image_with_label.shape = (256, 256, 2)
-    # data augmentation
-    # 1) flip
-    image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[::-1,...], lambda: image_with_label); # image_with_label.shape = (256, 256, 2)
-    image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[:,::-1,...], lambda: image_with_label); # image_with_label.shape = (256, 256, 2)
-    # 2) geometric augmentation
-    image_with_label = tf.expand_dims(image_with_label, axis = 0); # image_with_label.shape = (1, 256, 256, 2)
-    # rotation
-    image_with_label = tfa.image.rotate(image_with_label, tf.random.uniform(low = -30, high = 30, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
-    # translate
-    image_with_label = tfa.image.translate(image_with_label, tf.random.uniform(low = -5, high = 5, shape = (2,))); # image_with_label.shape = (1, 256, 256, 2)
-    # shear
-    image_with_label = tfa.image.shear_x(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
-    image_with_label = tfa.image.shear_y(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
-    # zoom
-    scale = tf.random.uniform(low = 0.9, high = 1.2, shape = ());
-    zoom_affine = tf.constant([scale, 0, (1 - scale) * image_with_label.shape[2] / 2, 0, scale, (1 - scale) * image_with_label.shape[1] / 2, 0, 0], dtype = tf.float32);
-    image = image_with_label[..., 0:1]; # image.shape = (1, 256, 256, 1)
-    label = image_with_label[..., 1:2]; # label.shape = (1, 256, 256, 1)
-    image = tfa.image.transform(image, zoom_affine, interpolation = 'BILINEAR', output_shape = (image_with_label.shape[1], image_with_label.shape[2]));
-    label = tfa.image.transform(label, zoom_affine, interpolation = 'NEAREST', output_shape = (image_with_label.shape[1], image_with_label.shape[2]));
-    image_with_label = tf.concat([image, label], axis = -1); # image_with_label.shape = (1, h, w, 2)
-    # elastic transform
-    dx = tfa.image.gaussian_filter2d(tf.random.uniform(low = -1, high = 1, shape = (image_with_label.shape[1], image_with_label.shape[2])), sigma = 5) * 10; # dx.shape = (height, width)
-    dy = tfa.image.gaussian_filter2d(tf.random.uniform(low = -1, high = 1, shape = (image_with_label.shape[1], image_with_label.shape[2])), sigma = 5) * 10; # dy.shape = (height, width)
-    y = tf.tile(tf.expand_dims(tf.range(tf.cast(image_with_label.shape[1], dtype = tf.float32), dtype = tf.float32), axis = -1), (1, image_with_label.shape[2])); # y.shape = (height, width)
-    x = tf.tile(tf.expand_dims(tf.range(tf.cast(image_with_label.shape[2], dtype = tf.float32), dtype = tf.float32), axis = 0), (image_with_label.shape[1], 1)); # x.shape = (height, width)
-    from_y = tf.clip_by_value(y + dy, 0, image_with_label.shape[0]); # new_y.shape = (height, width)
-    from_x = tf.clip_by_value(x + dx, 0, image_with_label.shape[1]); # new_x.shape = (height, width)
-    from_yx = tf.stack([from_y, from_x], axis = -1); # from_yx.shape = (height, width, 2)
-    image_with_label = tf.gather_nd(image_with_label, from_yx); # image_with_label.shape = (height, width, 2)
-    # 3) intensity augmentation
-    label = tf.clip_by_value(tf.math.round(image_with_label[...,-1]), 0, 1); # label.shape = (1, 256, 256)
-    image = image_with_label[...,0]; # image.shape = (1, 256, 256)
-    image = tf.image.adjust_gamma(image, gamma = tf.random.uniform(low = 0.5, high = 1.5, shape = ()));
-    image = tf.squeeze(image, axis = 0); # image.shape = (256, 256)
-    # NOTE: to fit resnet50's input shape
-    image = tf.tile(tf.expand_dims(image, axis = -1), (1, 1, 3)); # image.shape = (256, 256, 3)
-    label = tf.squeeze(label, axis = 0); # label.shape = (256, 256)
-    return image, label;
+    def augmentation(image, label):
+      image_with_label = tf.stack([image, label], axis = -1); # image_with_label.shape = (256, 256, 2)
+      # data augmentation
+      # 1) flip
+      image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[::-1,...], lambda: image_with_label); # image_with_label.shape = (256, 256, 2)
+      image_with_label = tf.cond(tf.math.less(tf.random.uniform(shape = ()), 0.25), lambda: image_with_label[:,::-1,...], lambda: image_with_label); # image_with_label.shape = (256, 256, 2)
+      # 2) geometric augmentation
+      image_with_label = tf.expand_dims(image_with_label, axis = 0); # image_with_label.shape = (1, 256, 256, 2)
+      # rotation
+      image_with_label = tfa.image.rotate(image_with_label, tf.random.uniform(low = -30, high = 30, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
+      # translate
+      image_with_label = tfa.image.translate(image_with_label, tf.random.uniform(low = -5, high = 5, shape = (2,))); # image_with_label.shape = (1, 256, 256, 2)
+      # shear
+      image_with_label = tfa.image.shear_x(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
+      image_with_label = tfa.image.shear_y(image_with_label, tf.random.uniform(low = -5, high = 5, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
+      # zoom
+      scale = tf.random.uniform(low = 0.9, high = 1.2, shape = ());
+      zoom_affine = tf.constant([scale, 0, (1 - scale) * image_with_label.shape[2] / 2, 0, scale, (1 - scale) * image_with_label.shape[1] / 2, 0, 0], dtype = tf.float32);
+      image = image_with_label[..., 0:1]; # image.shape = (1, 256, 256, 1)
+      label = image_with_label[..., 1:2]; # label.shape = (1, 256, 256, 1)
+      image = tfa.image.transform(image, zoom_affine, interpolation = 'BILINEAR', output_shape = (image_with_label.shape[1], image_with_label.shape[2]));
+      label = tfa.image.transform(label, zoom_affine, interpolation = 'NEAREST', output_shape = (image_with_label.shape[1], image_with_label.shape[2]));
+      image_with_label = tf.concat([image, label], axis = -1); # image_with_label.shape = (1, h, w, 2)
+      # elastic transform
+      dx = tfa.image.gaussian_filter2d(tf.random.uniform(low = -1, high = 1, shape = (image_with_label.shape[1], image_with_label.shape[2])), sigma = 5) * 10; # dx.shape = (height, width)
+      dy = tfa.image.gaussian_filter2d(tf.random.uniform(low = -1, high = 1, shape = (image_with_label.shape[1], image_with_label.shape[2])), sigma = 5) * 10; # dy.shape = (height, width)
+      y = tf.tile(tf.expand_dims(tf.range(tf.cast(image_with_label.shape[1], dtype = tf.float32), dtype = tf.float32), axis = -1), (1, image_with_label.shape[2])); # y.shape = (height, width)
+      x = tf.tile(tf.expand_dims(tf.range(tf.cast(image_with_label.shape[2], dtype = tf.float32), dtype = tf.float32), axis = 0), (image_with_label.shape[1], 1)); # x.shape = (height, width)
+      from_y = tf.clip_by_value(y + dy, 0, image_with_label.shape[0]); # new_y.shape = (height, width)
+      from_x = tf.clip_by_value(x + dx, 0, image_with_label.shape[1]); # new_x.shape = (height, width)
+      from_yx = tf.stack([from_y, from_x], axis = -1); # from_yx.shape = (height, width, 2)
+      image_with_label = tf.gather_nd(image_with_label, from_yx); # image_with_label.shape = (height, width, 2)
+      # 3) intensity augmentation
+      label = tf.clip_by_value(tf.math.round(image_with_label[...,-1]), 0, 1); # label.shape = (1, 256, 256)
+      image = image_with_label[...,0]; # image.shape = (1, 256, 256)
+      image = tf.image.adjust_gamma(image, gamma = tf.random.uniform(low = 0.5, high = 1.5, shape = ()));
+      image = tf.squeeze(image, axis = 0); # image.shape = (256, 256)
+      # NOTE: to fit resnet50's input shape
+      image = tf.tile(tf.expand_dims(image, axis = -1), (1, 1, 3)); # image.shape = (256, 256, 3)
+      label = tf.squeeze(label, axis = 0); # label.shape = (256, 256)
+      return image, label;
+    support, supp_label = augmentation(feature['image'], label);
+    query, query_label = augmentation(feature['image'], label);
+    return support, supp_label, query, query_label;
   return parse_function;
 
 # some helper functions

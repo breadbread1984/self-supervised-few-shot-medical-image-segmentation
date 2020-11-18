@@ -6,12 +6,12 @@ import tensorflow as tf;
 from models import FewShotSegmentation;
 from create_datasets import parse_function_generator;
 
-batch_size = 32;
+batch_size = 1;
 
 def main():
 
   fewshot = FewShotSegmentation();
-  optimizer = tf.keras.optimizers.Adam(tf.keras.optimizers.schedules.ExponentialDecay(1e-3, decay_steps = 110000, decay_rate = 0.95));
+  optimizer = tf.keras.optimizers.Adam(tf.keras.optimizers.schedules.ExponentialDecay(1e-3, decay_steps = 100100, decay_rate = 0.95));
   checkpoint = tf.train.Checkpoint(model = fewshot, optimizer = optimizer);
   train_loss = tf.keras.metrics.Mean(name = 'train loss', dtype = tf.float32);
   train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name = 'train accuracy');

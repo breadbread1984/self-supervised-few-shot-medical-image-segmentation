@@ -2,6 +2,7 @@
 
 from os import listdir;
 from os.path import join, splitext, basename;
+from math import pi;
 import numpy as np;
 from skimage.segmentation import felzenszwalb; # graph cut
 from skimage.measure import label; # label connected component
@@ -55,8 +56,13 @@ def parse_function_generator(with_label = True, use_superpix = False):
       # translate
       image_with_label = tfa.image.translate(image_with_label, tf.random.uniform(minval = -5, maxval = 5, shape = (2,))); # image_with_label.shape = (1, 256, 256, 2)
       # shear
-      image_with_label = tfa.image.shear_x(image_with_label, tf.random.uniform(minval = -5, maxval = 5, shape = ()), replace = 0); # image_with_label.shape = (1, 256, 256, 2)
-      image_with_label = tfa.image.shear_y(image_with_label, tf.random.uniform(minval = -5, maxval = 5, shape = ()), replace = 0); # image_with_label.shape = (1, 256, 256, 2)
+      shear_angle = tf.random.uniform(minval = -5 * pi / 180, maxval = 5 * pi / 180, shape = ());
+      shear_affine = tf.constant([1, -tf.math.sin(shear_angle), 0, 0, tf.math.cos(shear_angle), 0, 0, 0], dtype = tf.float32);
+      image = image_with_label[..., 0:1]; # image.shape = (1, 256, 256, 1)
+      label = image_with_label[..., 1:2]; # label.shape = (1, 256, 256, 1)
+      image = tfa.image.transform(image, shear_affine, interpolation = 'BILINEAR', output_shape = (image_with_label.shape[1], image_with_label.shape[2]));
+      label = tfa.image.transform(label, shear_affine, interpolation = 'NEAREST', output_shape = (image_with_label.shape[1], image_with_label.shape[2]));
+      image_with_label = tf.concat([image, label], axis = -1); # image_with_label.shape = (1, h, w, 2)
       # zoom
       scale = tf.random.uniform(minval = 0.9, maxval = 1.2, shape = ());
       zoom_affine = tf.constant([scale, 0, (1 - scale) * image_with_label.shape[2] / 2, 0, scale, (1 - scale) * image_with_label.shape[1] / 2, 0, 0], dtype = tf.float32);

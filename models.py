@@ -121,7 +121,7 @@ class FewShotSegmentation(tf.keras.Model):
     imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + qn, h, w, 3)
     img_fts = self.conv(self.resnet50(imgs_concat)[1]); # img_fts.shape = (nshot + 1, nh, nw, 256)
     supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x, (-1, query.shape[0]), axis = 0))(img_fts); # supp_fts.shape = (nshot, nh, nw, 256), qry_fts.shape = (qn, nh, nw, 256)
-    ds_labels = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = x[1].shape[1:3]))([labels, img_fts]); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)
+    ds_labels = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = x[1].shape[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([labels, img_fts]); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)
     ds_bg, ds_fg = tf.keras.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(ds_labels); # ds_bg.shape = (nshot, nh, nw, 1), ds_fg.shape = (nshot, nh, nw, foreground number)
     scores = list();
     bg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([qry_fts, supp_fts, ds_bg[..., 0:1]]); # bg_raw_score.shape = (qn, nh, nw)
@@ -132,12 +132,12 @@ class FewShotSegmentation(tf.keras.Model):
         else ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = self.thresh)([qry_fts, supp_fts, ds_fg[..., i:i+1]]); # fg_raw_score.shape = (qn, nh, nw)
       scores.append(fg_raw_score);
     scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (qn, nh, nw, 1 + foreground number)
-    pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3]))([scores, labels]); # us_scores.shape = (qn, h, w, 1 + foreground number)
+    pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([scores, labels]); # us_scores.shape = (qn, h, w, 1 + foreground number)
     # get align_loss
     if with_loss:
       pred_cls = tf.keras.layers.Lambda(lambda x: tf.math.argmax(x, axis = -1))(pred); # pred_cls.shape = (qn, h, w)
       query_label = tf.keras.layers.Lambda(lambda x: tf.one_hot(x[0], depth = x[1].shape[-1], axis = -1))([pred_cls, pred]); # pred_cls.shape = (qn, h, w, 1 + foreground number)
-      ds_query_label = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = x[1].shape[1:3]))([query_label, img_fts]); # ds_query_label.shape = (qn, nh, nw, 1 + foreground number)
+      ds_query_label = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = x[1].shape[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([query_label, img_fts]); # ds_query_label.shape = (qn, nh, nw, 1 + foreground number)
       query_bg, query_fg = tf.keras.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(ds_query_label); # query_bg.shape = (qn, h, w, 1), query_fg.shape = (qn, h, w, foreground number)
       scores = list();
       bg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([supp_fts, qry_fts, query_bg[..., 0:1]]); # bg_raw_score.shape = (nshot, nh, nw)
@@ -148,7 +148,7 @@ class FewShotSegmentation(tf.keras.Model):
           else ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = self.thresh)([supp_fts, qry_fts, query_fg[..., i:i+1]]); # fg_raw_score.shape = (nshot, nh, nw)
         scores.append(fg_raw_score);
       scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (nshot, nh, nw, 1 + foreground number)
-      supp_pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3]))([scores, labels]); # supp_pred.shape = (nshot, h, w, 1 + foreground)
+      supp_pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], x[1].shape[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([scores, labels]); # supp_pred.shape = (nshot, h, w, 1 + foreground)
       loss = tf.keras.losses.SparseCategoricalCrossentropy(labels, supp_pred);
     return pred if with_loss == False else pred, loss;
 

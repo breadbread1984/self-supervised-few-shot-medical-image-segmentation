@@ -55,8 +55,8 @@ def parse_function_generator(with_label = True, use_superpix = False):
       # translate
       image_with_label = tfa.image.translate(image_with_label, tf.random.uniform(minval = -5, maxval = 5, shape = (2,))); # image_with_label.shape = (1, 256, 256, 2)
       # shear
-      image_with_label = tfa.image.shear_x(image_with_label, tf.random.uniform(minval = -5, maxval = 5, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
-      image_with_label = tfa.image.shear_y(image_with_label, tf.random.uniform(minval = -5, maxval = 5, shape = ())); # image_with_label.shape = (1, 256, 256, 2)
+      image_with_label = tfa.image.shear_x(image_with_label, tf.random.uniform(minval = -5, maxval = 5, shape = ()), replace = 0); # image_with_label.shape = (1, 256, 256, 2)
+      image_with_label = tfa.image.shear_y(image_with_label, tf.random.uniform(minval = -5, maxval = 5, shape = ()), replace = 0); # image_with_label.shape = (1, 256, 256, 2)
       # zoom
       scale = tf.random.uniform(minval = 0.9, maxval = 1.2, shape = ());
       zoom_affine = tf.constant([scale, 0, (1 - scale) * image_with_label.shape[2] / 2, 0, scale, (1 - scale) * image_with_label.shape[1] / 2, 0, 0], dtype = tf.float32);

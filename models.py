@@ -101,11 +101,18 @@ def ResNet101Atrous():
 
 def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmentation', pretrain = None):
 
-  query = tf.keras.Input((None, None, 3));
-  support = tf.keras.Input((None, None, 3));
-  labels = tf.keras.Input((None, None, 1 + fg_class_num));
+  query = tf.keras.Input((None, None, 3)); # query.shape = (qn, h, w, 3)
+  support = tf.keras.Input((None, None, 3)); # support.shape = (nshot, h, w, 3)
+  labels = tf.keras.Input((None, None, 1 + fg_class_num)); # labels.shape = (nshot, h, w, 1 + foreground number)
   imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + qn, h, w, 3)
-  img_fts = ResNet50Atrous()(imgs_concat)[1]; # img_fts.shape = (nshot + qn, nh, nw, 2048)
+  resnet50 = ResNet50Atrous();
+  if pretrain is not None: resnet50.load_weights('pretrain.h5');
+  img_fts = resnet50(imgs_concat)[1]; # img_fts.shape = (nshot + qn, nh, nw, 2048)
+  img_fts = tf.keras.layers.Conv2D(filters = 256, kernel_size = (1,1))(img_fts); # img_fts.shape = (nshot + qn, nh, nw, 256)
+  supp_fts, qrt_fts = tf.keras.layers.Lambda(lambda x: tf.split(x[0], (tf.shape(x[1])[0], -1), axis = 0))([img_fts, support]); # supp_fts.shape = (nshot, nh, nw, 256), qry_fts.shape = (qn, nh, nw, 256)
+  ds_labels = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([labels, img_fts]); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)
+  ds_bg, ds_fg = tf.keras.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(ds_labels); # ds_bg.shape = (nshot, nh, nw, 1), ds_fg.shape = (nshot, nh, nw, foreground number)
+  bg_raw_score = ALPNet(tf.shape(qry_fts)[1], tf.shape(qry_fts)[2], tf.shape(qry_fts)[3], mode = 'gridconv', thresh = thresh)([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (qn, nh, nw)
   
 
 class FewShotSegmentation(tf.keras.Model):

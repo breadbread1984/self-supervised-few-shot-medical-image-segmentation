@@ -84,7 +84,7 @@ def parse_function_generator(with_label = True, use_superpix = False):
       # 3) intensity augmentation
       label = tf.clip_by_value(tf.math.round(image_with_label[...,-1]), 0, 1); # label.shape = (1, 256, 256)
       image = image_with_label[...,0]; # image.shape = (1, 256, 256)
-      image = tf.image.adjust_gamma(image, gamma = tf.random.uniform(minval = 0.5, maxval = 1.5, shape = ()));
+      image = tf.image.adjust_gamma(image, gamma = tf.random.uniform(minval = 1, maxval = 1, shape = ()));
       image = tf.squeeze(image, axis = 0); # image.shape = (256, 256)
       # NOTE: to fit resnet50's input shape
       image = tf.tile(tf.expand_dims(image, axis = -1), (1, 1, 3)); # image.shape = (256, 256, 3)

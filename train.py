@@ -14,9 +14,9 @@ def main():
   optimizer = tf.keras.optimizers.Adam(tf.keras.optimizers.schedules.ExponentialDecay(1e-3, decay_steps = 100100, decay_rate = 0.95));
   checkpoint = tf.train.Checkpoint(model = fewshot, optimizer = optimizer);
   train_loss = tf.keras.metrics.Mean(name = 'train loss', dtype = tf.float32);
-  train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name = 'train accuracy');
+  train_accuracy = tf.keras.metrics.CategoricalAccuracy(name = 'train accuracy');
   test_loss = tf.keras.metrics.Mean(name = 'test loss', dtype = tf.float32);
-  test_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name = 'test accuracy');
+  test_accuracy = tf.keras.metrics.CategoricalAccuracy(name = 'test accuracy');
   trainset = tf.data.TFRecordDataset(join('datasets', 'trainset.tfrecord')).repeat(-1).map(parse_function_generator(with_label = True, use_superpix = True)).shuffle(batch_size).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE);
   testset = tf.data.TFRecordDataset(join('datasets', 'testset.tfrecord')).repeat(-1).map(parse_function_generator(with_label = False, use_superpix = True)).shuffle(batch_size).batch(batch_size).prefetch(tf.data.experimental.AUTOTUNE);
   trainset_iter = iter(trainset);

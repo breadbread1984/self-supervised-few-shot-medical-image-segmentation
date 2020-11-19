@@ -99,6 +99,15 @@ def ResNet101Atrous():
   results = ResNetAtrous([3, 4, 23, 3], [2, 2, 2])(inputs);
   return tf.keras.Model(inputs = inputs, outputs = results, name = 'resnet101');
 
+def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmentation', pretrain = None):
+
+  query = tf.keras.Input((None, None, 3));
+  support = tf.keras.Input((None, None, 3));
+  labels = tf.keras.Input((None, None, 1 + fg_class_num));
+  imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + qn, h, w, 3)
+  img_fts = ResNet50Atrous()(imgs_concat)[1]; # img_fts.shape = (nshot + qn, nh, nw, 2048)
+  
+
 class FewShotSegmentation(tf.keras.Model):
 
   def __init__(self, thresh = 0.95, name = 'few_shot_segmentation', pretrain = None, **kwargs):

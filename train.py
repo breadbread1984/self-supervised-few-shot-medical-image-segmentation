@@ -39,7 +39,7 @@ def main():
       if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(query), tf.math.is_inf(query))) == True:
         print('detected nan in query, skip current iterations');
         continue;
-      preds, loss = fewshot(query, support, supp_label);
+      preds, loss = fewshot((query, support, supp_label, True));
       if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(preds), tf.math.is_inf(preds))) == True:
         print('detected nan in preds, skip current iterations');
         pdb.set_trace();

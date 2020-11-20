@@ -140,6 +140,7 @@ def Loss(fg_class_num, thresh = 0.95):
   mask = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = thresh);  
   scores = list();
   bg_raw_score = gridconv([supp_fts, qry_fts, query_bg]); # bg_raw_score.shape = (nshot, nh, nw)
+  scores.append(bg_raw_score);
   for i in range(fg_class_num):
     maxval = tf.keras.layers.Lambda(lambda x, i: tf.math.reduce_max(tf.nn.avg_pool2d(x[..., i:i+1], (4,4), strides = (1,1), padding = 'VALID')), arguments = {'i': i})(query_fg);
     fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t: tf.cond(tf.math.greater(x[3], t), lambda: gridconv_plus([x[0], x[1], x[2][...,i:i+1]]), lambda: mask([x[0], x[1], x[2][...,i:i+1]])), arguments = {'i': i, 't': thresh})([supp_fts, qry_fts, query_fg, maxval]);

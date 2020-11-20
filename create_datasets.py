@@ -89,7 +89,7 @@ def parse_function_generator(with_label = True, use_superpix = False):
       # NOTE: to fit resnet50's input shape
       image = tf.tile(tf.expand_dims(image, axis = -1), (1, 1, 3)); # image.shape = (256, 256, 3)
       label = tf.squeeze(label, axis = 0); # label.shape = (256, 256)
-      label = tf.cast(tf.equal(tf.expand_dims(label, axis = -1), tf.reshape(tf.range(2 if use_superpix else 5, dtype = tf.float32), (1, 1, -1))), dtype = tf.float32);
+      label = tf.one_hot(label, 2 if use_superpix else 5, axis = -1); # label.shape = (256, 256, class num)
       return image, label;
     support, supp_label = augmentation(feature['image'], label);
     query, query_label = augmentation(feature['image'], label);

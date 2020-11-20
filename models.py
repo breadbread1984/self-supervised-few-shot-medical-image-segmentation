@@ -127,6 +127,7 @@ def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmen
 
 def Loss(fg_class_num):
 
+  labels = tf.keras.Input((None, None, 1 + fg_class_num)); # labels.shape = (nshot, h, w, 1 + foreground number)
   pred = tf.keras.Input((None, None, 1 + fg_class_num)); # pred,.shape = (qn, h, w, 1 + foreground number)
   supp_fts = tf.keras.Input((None, None, 256)); # supp_fts.shape = (nshot, nh, nw, 256)
   qry_fts = tf.keras.Input((None, None, 256)); # qry_fts.shape = (qn, nh, nw, 256)
@@ -144,61 +145,9 @@ def Loss(fg_class_num):
     fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t: tf.cond(tf.math.greater(x[3], t), lambda: gridconv_plus([x[0], x[1], x[2][...,i:i+1]]), lambda: mask([x[0], x[1], x[2][...,i:i+1]])), arguments = {'i': i, 't': thresh})([supp_fts, qry_fts, query_fg, maxval]);
     scores.append(fg_raw_score);
   scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (nshot, nh, nw, 1 + foreground number)
-  supp_pred = tf.keras.layers.Lambda(lambda )
-'''
-class FewShotSegmentation(tf.keras.Model):
-
-  def __init__(self, thresh = 0.95, name = 'few_shot_segmentation', pretrain = None, **kwargs):
-
-    super(FewShotSegmentation, self).__init__(name = name, ** kwargs);
-    self.resnet50 = ResNet50Atrous();
-    if pretrain is not None:
-      self.resnet50.load_weights('pretrain.h5');
-    self.conv = tf.keras.layers.Conv2D(filters = 256, kernel_size = (1, 1));
-    self.thresh = thresh;
-
-  def call(self, inputs):
-
-    # query.shape = (qn, h, w, 3)
-    # support.shape = (nshot, h, w, 3)
-    # labels.shape = (nshot, h, w, 1 + foreground number)
-    # with_loss.shape = ()
-    query, support, labels, with_loss = inputs;
-    assert with_loss.dtype == tf.bool;
-    imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + qn, h, w, 3)
-    img_fts = self.conv(self.resnet50(imgs_concat)[1]); # img_fts.shape = (nshot + qn, nh, nw, 256)
-    supp_fts, qry_fts = tf.split(img_fts, (support.shape[0], query.shape[0]), axis = 0); # supp_fts.shape = (nshot, nh, nw, 256), qry_fts.shape = (qn, nh, nw, 256)
-    ds_labels = tf.image.resize(labels, size = img_fts.shape[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)
-    ds_bg, ds_fg = tf.split(ds_labels, (1, -1), axis = -1); # ds_bg.shape = (nshot, nh, nw, 1), ds_fg.shape = (nshot, nh, nw, foreground number)
-    scores = list();
-    bg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([qry_fts, supp_fts, ds_bg[..., 0:1]]); # bg_raw_score.shape = (qn, nh, nw)
-    scores.append(bg_raw_score);
-    for i in range(ds_fg.shape[-1]):
-      maxval = tf.math.reduce_max(tf.nn.avg_pool2d(ds_fg[..., i:i+1], (4, 4), strides = (1, 1), padding = 'VALID'));
-      fg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = self.thresh)([qry_fts, supp_fts, ds_fg[..., i:i+1]]) if maxval > self.thresh \
-        else ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = self.thresh)([qry_fts, supp_fts, ds_fg[..., i:i+1]]); # fg_raw_score.shape = (qn, nh, nw)
-      scores.append(fg_raw_score);
-    scores = tf.stack(scores, axis = -1); # scores.shape = (qn, nh, nw, 1 + foreground number)
-    pred = tf.image.resize(scores, labels.shape[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR); # us_scores.shape = (qn, h, w, 1 + foreground number)
-    # get align_loss
-    if with_loss:
-      pred_cls = tf.math.argmax(pred, axis = -1); # pred_cls.shape = (qn, h, w)
-      query_label = tf.one_hot(pred_cls, depth = pred.shape[-1], axis = -1); # pred_cls.shape = (qn, h, w, 1 + foreground number)
-      ds_query_label = tf.image.resize(query_label, size = img_fts.shape[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR); # ds_query_label.shape = (qn, nh, nw, 1 + foreground number)
-      query_bg, query_fg = tf.split(ds_query_label, (1, -1), axis = -1); # query_bg.shape = (qn, h, w, 1), query_fg.shape = (qn, h, w, foreground number)
-      scores = list();
-      bg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = self.thresh)([supp_fts, qry_fts, query_bg[..., 0:1]]); # bg_raw_score.shape = (nshot, nh, nw)
-      scores.append(bg_raw_score);
-      for i in range(query_fg.shape[-1]):
-        maxval = tf.math.reduce_max(tf.nn.avg_pool2d(query_fg[..., i:i+1], (4, 4), strides = (1, 1), padding = 'VALID'));
-        fg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv+', thresh = self.thresh)([supp_fts, qry_fts, query_fg[..., i:i+1]]) if maxval > self.thresh \
-          else ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = self.thresh)([supp_fts, qry_fts, query_fg[..., i:i+1]]); # fg_raw_score.shape = (nshot, nh, nw)
-        scores.append(fg_raw_score);
-      scores = tf.stack(scores, axis = -1); # scores.shape = (nshot, nh, nw, 1 + foreground number)
-      supp_pred = tf.image.resize(scores, labels.shape[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR); # supp_pred.shape = (nshot, h, w, 1 + foreground)
-      loss = tf.keras.losses.CategoricalCrossentropy()(labels, supp_pred);
-    return pred if with_loss == False else pred, loss;
-'''
+  supp_pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([scores, labels]); # supp_pred.shape = (nshot, h, w, 1 + foreground)
+  loss = tf.keras.losses.CategoricalCrossentropy()(labels, supp_pred);
+  return tf.keras.Model(inputs = (labels, pred, supp_fts, qry_fts), outputs = loss);
 
 if __name__ == "__main__":
 

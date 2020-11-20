@@ -43,7 +43,7 @@ def main():
         print('detected nan in query, skip current iterations');
         continue;
       preds, supp_fts, qry_fts = fewshot((query, support, supp_label));
-      l = loss((supp_label, pred, supp_fts, qry_fts));
+      l = loss((supp_label, preds, supp_fts, qry_fts));
       if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(preds), tf.math.is_inf(preds))) == True:
         print('detected nan in preds, skip current iterations');
         pdb.set_trace();
@@ -75,7 +75,7 @@ def main():
           print('detected nan in query, skip current iterations');
           continue;
         preds, supp_fts, qry_fts = fewshot((query, support, supp_label));
-        l = loss((supp_label, pred, supp_fts, qry_fts));
+        l = loss((supp_label, preds, supp_fts, qry_fts));
         test_loss.update_state(l);
         test_accuracy.update_state(query_label, preds);
       # write log

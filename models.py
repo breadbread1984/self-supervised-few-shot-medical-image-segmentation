@@ -125,7 +125,7 @@ def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmen
   pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([scores, labels]); # pred.shape = (qn, h, w, 1 + foreground number)
   return tf.keras.Model(inputs = (query, support, labels), outputs = (pred, supp_fts, qry_fts));
 
-def Loss(fg_class_num):
+def Loss(fg_class_num, thresh = 0.95):
 
   labels = tf.keras.Input((None, None, 1 + fg_class_num)); # labels.shape = (nshot, h, w, 1 + foreground number)
   pred = tf.keras.Input((None, None, 1 + fg_class_num)); # pred,.shape = (qn, h, w, 1 + foreground number)

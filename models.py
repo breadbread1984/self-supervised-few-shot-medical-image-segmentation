@@ -132,9 +132,9 @@ def Loss(fg_class_num, thresh = 0.95):
   supp_fts = tf.keras.Input((None, None, 256)); # supp_fts.shape = (nshot, nh, nw, 256)
   qry_fts = tf.keras.Input((None, None, 256)); # qry_fts.shape = (qn, nh, nw, 256)
   pred_cls = tf.keras.layers.Lambda(lambda x: tf.math.argmax(x, axis = -1))(pred); # pred_cls.shape = (qn, h, w)
-  query_label = tf.keras.layers.Lambda(lambda x: tf.one_hot(x[0], depth = tf.shape(x[1])[-1], axis = -1))([pred_cls, pred]); # query_label.shape = (qn, h, w, 1 + foreground number)
+  query_label = tf.keras.layers.Lambda(lambda x, c: tf.one_hot(x, depth = c, axis = -1), arguments = {'c': 1 + fg_class_num})(pred_cls); # query_label.shape = (qn, h, w, 1 + foreground number)
   ds_query_label = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([query_label, supp_fts]); # ds_query_label.shape = (qn, nh, nw, 1 + foreground number)
-  query_bg, query_fg = tf.keras.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(ds_query_label); # query_bg.shape = (qn, h, w, 1), query_fg.shape = (qn, h, w, foreground number)
+  query_bg, query_fg = tf.keras.layers.Lambda(lambda x, c: tf.split(x, (1, c), axis = -1), arguments = {'c': fg_class_num})(ds_query_label); # query_bg.shape = (qn, h, w, 1), query_fg.shape = (qn, h, w, foreground number)
   gridconv = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = thresh);
   gridconv_plus = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv+', thresh = thresh);
   mask = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = thresh);  

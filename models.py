@@ -119,7 +119,7 @@ def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmen
   bg_raw_score = gridconv([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (qn, nh, nw)
   for i in range(fg_class_num):
     maxval = tf.keras.layers.Lambda(lambda x, i: tf.math.reduce_max(tf.nn.avg_pool2d(x[..., i:i+1], (4,4), strides = (1,1), padding = 'VALID')), arguments = {'i': i})(ds_fg);
-    fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t : tf.cond(tf.math.greater(x[3], t), lambda: gridconv_plus(x[0], x[1], x[2][...,i:i+1]), lambda: mask(x[0], x[1], x[2][...,i:i+1])), arguments = {'i': i, 't': thresh})([qry_fts, supp_fts, ds_fg, maxval]);
+    fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t : tf.cond(tf.math.greater(x[3], t), lambda: gridconv_plus([x[0], x[1], x[2][...,i:i+1]]), lambda: mask([x[0], x[1], x[2][...,i:i+1]])), arguments = {'i': i, 't': thresh})([qry_fts, supp_fts, ds_fg, maxval]);
     scores.append(fg_raw_score);
   scores = tf.keras.layers.Lambda(lambda x: tf.stack(scores, axis = -1))(scores); # scores.shape = (qn, nh, nw, 1 + foreground number)
   pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([scores, labels]); # pred.shape = (qn, h, w, 1 + foreground number)

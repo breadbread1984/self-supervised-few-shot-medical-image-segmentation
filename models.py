@@ -98,7 +98,7 @@ def ResNet101Atrous():
   inputs = tf.keras.Input((None, None, 3));
   results = ResNetAtrous([3, 4, 23, 3], [2, 2, 2])(inputs);
   return tf.keras.Model(inputs = inputs, outputs = results, name = 'resnet101');
-'''
+
 def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmentation', pretrain = None):
 
   query = tf.keras.Input((None, None, 3)); # query.shape = (qn, h, w, 3)
@@ -109,12 +109,31 @@ def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmen
   if pretrain is not None: resnet50.load_weights('pretrain.h5');
   img_fts = resnet50(imgs_concat)[1]; # img_fts.shape = (nshot + qn, nh, nw, 2048)
   img_fts = tf.keras.layers.Conv2D(filters = 256, kernel_size = (1,1))(img_fts); # img_fts.shape = (nshot + qn, nh, nw, 256)
-  supp_fts, qrt_fts = tf.keras.layers.Lambda(lambda x: tf.split(x[0], (tf.shape(x[1])[0], -1), axis = 0))([img_fts, support]); # supp_fts.shape = (nshot, nh, nw, 256), qry_fts.shape = (qn, nh, nw, 256)
+  supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x[0], (tf.shape(x[1])[0], tf.shape(x[2])[0]), axis = 0))([img_fts, support, query]); # supp_fts.shape = (nshot, nh, nw, 256), qry_fts.shape = (qn, nh, nw, 256)
   ds_labels = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([labels, img_fts]); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)
   ds_bg, ds_fg = tf.keras.layers.Lambda(lambda x: tf.split(x, (1, -1), axis = -1))(ds_labels); # ds_bg.shape = (nshot, nh, nw, 1), ds_fg.shape = (nshot, nh, nw, foreground number)
-  bg_raw_score = ALPNet(tf.shape(qry_fts)[1], tf.shape(qry_fts)[2], tf.shape(qry_fts)[3], mode = 'gridconv', thresh = thresh)([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (qn, nh, nw)
-'''
+  gridconv = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = thresh);
+  gridconv_plus = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = thresh);
+  mask = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = thresh);
+  scores = list();
+  bg_raw_score = gridconv([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (qn, nh, nw)
+  for i in range(fg_class_num):
+    maxval = tf.keras.layers.Lambda(lambda x, i: tf.math.reduce_max(tf.nn.avg_pool2d(x[..., i:i+1], (4,4), strides = (1,1), padding = 'VALID')), arguments = {'i': i})(ds_fg);
+    fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t : tf.cond(tf.math.greater(x[3], t), lambda: gridconv_plus(x[0], x[1], x[2][...,i:i+1]), lambda: mask(x[0], x[1], x[2][...,i:i+1])), arguments = {'i': i, 't': thresh})([qry_fts, supp_fts, ds_fg, maxval]);
+    scores.append(fg_raw_score);
+  scores = tf.keras.layers.Lambda(lambda x: tf.stack(scores, axis = -1))(scores); # scores.shape = (qn, nh, nw, 1 + foreground number)
+  pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([scores, labels]); # pred.shape = (qn, h, w, 1 + foreground number)
+  return tf.keras.Model(inputs = (query, support, labels), outputs = (pred, img_fts));
 
+def Loss(fg_class_num):
+
+  pred = tf.keras.Input((None, None, 1 + fg_class_num)); # pred,.shape = (qn, h, w, 1 + foreground number)
+  
+  pred_cls = tf.keras.layers.Lambda(lambda x: tf.math.argmax(x, axis = -1))(pred); # pred_cls.shape = (qn, h, w)
+  query_label = tf.keras.layers.Lambda(lambda x: tf.one_hot(x[0], depth = tf.shape(x[1])[-1], axis = -1))([pred_cls, pred]); # query_label.shape = (qn, h, w, 1 + foreground number)
+  ds_query_label = tf.keras.layers.Lambda(lambda x: tf.image.resize())();
+
+'''
 class FewShotSegmentation(tf.keras.Model):
 
   def __init__(self, thresh = 0.95, name = 'few_shot_segmentation', pretrain = None, **kwargs):
@@ -167,6 +186,7 @@ class FewShotSegmentation(tf.keras.Model):
       supp_pred = tf.image.resize(scores, labels.shape[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR); # supp_pred.shape = (nshot, h, w, 1 + foreground)
       loss = tf.keras.losses.CategoricalCrossentropy()(labels, supp_pred);
     return pred if with_loss == False else pred, loss;
+'''
 
 if __name__ == "__main__":
 
@@ -184,9 +204,9 @@ if __name__ == "__main__":
   alpnet = ALPNet(480, 640, mode = 'gridconv+');
   b = alpnet([q,s,l]);
   alpnet.save('gridconv+.h5');
-  fss = FewShotSegmentation();
+  fss = FewShotSegmentation(10);
   q = np.random.normal(size = (8, 480, 640, 3));
   s = np.random.normal(size = (10, 480, 640, 3));
   l = np.random.randint(low = 0, high = 2, size = (10, 480, 640, 11));
-  pred = fss([q, s, l, True]);
+  pred = fss([q, s, l]);
   fss.save_weights('fss.h5');

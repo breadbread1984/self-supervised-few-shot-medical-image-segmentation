@@ -3,7 +3,7 @@
 from os import mkdir, listdir;
 from os.path import join, exists;
 import tensorflow as tf;
-from models import FewShotSegmentation;
+from models import FewShotSegmentation, Loss;
 from create_datasets import parse_function_generator;
 
 physical_devices = tf.config.list_physical_devices('GPU');
@@ -12,7 +12,8 @@ batch_size = 1;
 
 def main():
 
-  fewshot = FewShotSegmentation();
+  fewshot = FewShotSegmentation(1);
+  loss = Loss(1);
   optimizer = tf.keras.optimizers.Adam(tf.keras.optimizers.schedules.ExponentialDecay(1e-3, decay_steps = 100100, decay_rate = 0.95));
   checkpoint = tf.train.Checkpoint(model = fewshot, optimizer = optimizer);
   train_loss = tf.keras.metrics.Mean(name = 'train loss', dtype = tf.float32);
@@ -41,15 +42,16 @@ def main():
       if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(query), tf.math.is_inf(query))) == True:
         print('detected nan in query, skip current iterations');
         continue;
-      preds, loss = fewshot((query, support, supp_label, True));
+      preds, supp_fts, qry_fts = fewshot((query, support, supp_label));
+      l = loss((supp_label, pred, supp_fts, qry_fts));
       if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(preds), tf.math.is_inf(preds))) == True:
         print('detected nan in preds, skip current iterations');
         pdb.set_trace();
         continue;
-      if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(loss), tf.math.is_inf(loss))) == True:
+      if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(l), tf.math.is_inf(l))) == True:
         print('detected nan in loss, skip current iterations');
         continue;
-    grads = tape.gradient(loss, fewshot.trainable_variables);
+    grads = tape.gradient(l, fewshot.trainable_variables);
     if tf.math.reduce_any([tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(grad), tf.math.is_inf(grad))) for grad in grads]) == True:
       print('detected nan in grads, skip current iterations');
       continue;

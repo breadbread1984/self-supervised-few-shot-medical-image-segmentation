@@ -12,7 +12,7 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, nam
     # convolute query tensor with a single foreground prototype vector
     proto = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = (1, 2)) / (tf.math.reduce_sum(x[1], axis = (1, 2)) + 1e-5))([support, labels]); # proto.shape = (nshot, c)
     proto = tf.keras.layers.Lambda(lambda x: tf.reshape(tf.math.reduce_mean(x, axis = 0), (1, 1, 1, -1)))(proto); # proto.shape = (1, 1, 1, c)
-    pred_mask = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = -1) / tf.maximum(tf.norm(x[0], axis = -1) * tf.norm(x[1], axis = -1), 1e-4))([query, proto]); # pred_mask.shape = (qn, h, w)
+    pred_mask = tf.keras.layers.Lambda(lambda x: 20. * tf.math.reduce_sum(x[0] * x[1], axis = -1) / tf.maximum(tf.norm(x[0], axis = -1) * tf.norm(x[1], axis = -1), 1e-4))([query, proto]); # pred_mask.shape = (qn, h, w)
     return tf.keras.Model(inputs = (query, support, labels), outputs = pred_mask, name = name);
   else:
     # get foreground prototype vectors of down sampled input tensor

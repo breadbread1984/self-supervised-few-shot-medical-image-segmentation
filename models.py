@@ -4,6 +4,7 @@ import tensorflow as tf;
 
 def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, name = None):
 
+  # NOTE: this model predicts foreground mask of query images, according to the given support image and masks
   assert mode in ['mask', 'gridconv', 'gridconv+'];
   query = tf.keras.Input((height, width, channel)); # query.shape = (qn, h, w, c)
   support = tf.keras.Input((height, width, channel)); # support.shape = (nshot, h, w, c)
@@ -106,7 +107,7 @@ def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmen
   labels = tf.keras.Input((None, None, 1 + fg_class_num)); # labels.shape = (nshot, h, w, 1 + foreground number)
   imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + qn, h, w, 3)
   resnet50 = ResNet50Atrous();
-  if pretrain is not None: resnet50.load_weights('pretrain.h5');
+  if pretrain is not None: resnet50.load_weights(pretrain);
   img_fts = resnet50(imgs_concat)[1]; # img_fts.shape = (nshot + qn, nh, nw, 2048)
   img_fts = tf.keras.layers.Conv2D(filters = 256, kernel_size = (1,1))(img_fts); # img_fts.shape = (nshot + qn, nh, nw, 256)
   supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x[0], (tf.shape(x[1])[0], tf.shape(x[2])[0]), axis = 0))([img_fts, support, query]); # supp_fts.shape = (nshot, nh, nw, 256), qry_fts.shape = (qn, nh, nw, 256)
@@ -117,6 +118,7 @@ def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmen
   mask = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = thresh);
   scores = list();
   bg_raw_score = gridconv([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (qn, nh, nw)
+  scores.append(bg_raw_score);
   for i in range(fg_class_num):
     maxval = tf.keras.layers.Lambda(lambda x, i: tf.math.reduce_max(tf.nn.avg_pool2d(x[..., i:i+1], (4,4), strides = (1,1), padding = 'VALID')), arguments = {'i': i})(ds_fg);
     fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t : tf.cond(tf.math.greater(x[3], t), lambda: gridconv_plus([x[0], x[1], x[2][...,i:i+1]]), lambda: mask([x[0], x[1], x[2][...,i:i+1]])), arguments = {'i': i, 't': thresh})([qry_fts, supp_fts, ds_fg, maxval]);

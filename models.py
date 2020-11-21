@@ -9,13 +9,13 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, nam
   support = tf.keras.Input((height, width, channel)); # support.shape = (nshot, h, w, c)
   labels = tf.keras.Input((height, width, 1)); # labels.shape = (nshot, h, w, 1) with foreground value 1 and background value 0
   if mode == 'mask':
-    # convolute query tensor with a single foreground prototype vector
+    # convolute query tensor with a single foreground prototype vector (average of foregound area vectors)
     proto = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = (1, 2)) / (tf.math.reduce_sum(x[1], axis = (1, 2)) + 1e-5))([support, labels]); # proto.shape = (nshot, c)
     proto = tf.keras.layers.Lambda(lambda x: tf.reshape(tf.math.reduce_mean(x, axis = 0), (1, 1, 1, -1)))(proto); # proto.shape = (1, 1, 1, c)
     pred_mask = tf.keras.layers.Lambda(lambda x: 20. * tf.math.reduce_sum(x[0] * x[1], axis = -1) / tf.maximum(tf.norm(x[0], axis = -1) * tf.norm(x[1], axis = -1), 1e-4))([query, proto]); # pred_mask.shape = (qn, h, w)
     return tf.keras.Model(inputs = (query, support, labels), outputs = pred_mask, name = name);
   else:
-    # get multiple foreground prototype vectors of down sampled input tensor
+    # get multiple foreground prototype vectors of down sampled input tensor (all foreground area vectors)
     n_sup = tf.keras.layers.AveragePooling2D(pool_size = (4, 4))(support); # n_sup.shape = (nshot, nh, nw, c)
     n_sup = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1, tf.shape(x)[-1])))(n_sup); # n_sup.shape = (nshot * nh * nw, c)
     n_label = tf.keras.layers.AveragePooling2D(pool_size = (4, 4))(labels); # n_label.shape = (nshot, nh, nw, 1)

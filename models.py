@@ -76,6 +76,7 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, nam
   n_sup = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1, tf.shape(x)[-1])))(n_sup); # n_sup.shape = (nshot * nh * nw, c)
   n_label = tf.keras.layers.AveragePooling2D(pool_size = (2, 2))(labels); # n_label.shape = (nshot, nh, nw, 1)
   n_label_flatten = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1,)))(n_label); # n_label.shape = (nshot * nh * nw)
+  maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (2,2), strides = (1,1), padding = 'VALID')))(n_label);
   fg = tf.keras.layers.Lambda(lambda x, t: tf.math.greater(x, t), arguments = {'t': thresh})(n_label_flatten); # mask.shape = (nshot * nh * nw)
   protos = tf.keras.layers.Lambda(lambda x: tf.boolean_mask(x[0], x[1]))([n_sup, fg]); # protos.shape = (n, c)
   # normalize query tensor
@@ -86,7 +87,7 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, nam
     filters = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.expand_dims(tf.transpose(x, (1, 0)), axis = 0), axis = 0))(protos); # filters.shape = (1, 1, c, n)
     dists = tf.keras.layers.Lambda(lambda x: tf.nn.conv2d(input = x[0], filters = x[1], strides = (1, 1), padding = 'VALID') * 20)([qry, filters]); # dists.shape = (qn, h, w, n)
     pred_grid = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(tf.nn.softmax(x, axis = -1) * x, axis = -1))(dists); # pred_grid.shape = (qn, h, w)
-    outputs = tf.keras.layers.Lambda(lambda x: tf.cond(tf.math.greater(tf.shape(x[2])[0], 0), lambda: x[0], lambda: x[1]))([pred_grid, pred_mask, protos]);
+    outputs = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.math.greater(x[2], t), lambda: x[0], lambda: x[1]), arguments = {'t': thresh})([pred_grid, pred_mask, maxval]);
     return tf.keras.Model(inputs = (query, support, labels), outputs = outputs, name = name);
   elif mode == 'gridconv+':
     # convolute query tensor with multiple prototype vectors from original resolution input tensor and downsampled input tensor
@@ -96,7 +97,7 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, nam
     filters = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.expand_dims(tf.transpose(x, (1, 0)), axis = 0), axis = 0))(pro_n); # filters.shape = (1, 1, c, n + nshot)
     dists = tf.keras.layers.Lambda(lambda x: tf.nn.conv2d(input = x[0], filters = x[1], strides = (1, 1), padding = 'VALID') * 20)([qry, filters]); # dists.shape = (qn, h, w, n + nshot)
     pred_grid = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(tf.nn.softmax(x, axis = -1) * x, axis = -1))(dists); # pred_grid.shape = (qn, h, w)
-    outputs = tf.keras.layers.Lambda(lambda x: tf.cond(tf.math.greater(tf.shape(x[2])[0], 0), lambda: x[0], lambda: x[1]))([pred_grid, pred_mask, protos])
+    outputs = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.math.greater(x[2], t), lambda: x[0], lambda: x[1]), arguments = {'t': thresh})([pred_grid, pred_mask, maxval])
     return tf.keras.Model(inputs = (query, support, labels), outputs = pred_grid, name = name);
   else:
     raise Exception('unknown mode!');

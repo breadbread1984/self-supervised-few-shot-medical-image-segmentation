@@ -2,48 +2,6 @@
 
 import tensorflow as tf;
 
-def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, name = None):
-
-  # NOTE: this model predicts foreground mask of query images, according to the given support image and masks
-  assert mode in ['mask', 'gridconv', 'gridconv+'];
-  query = tf.keras.Input((height, width, channel)); # query.shape = (qn, h, w, c)
-  support = tf.keras.Input((height, width, channel)); # support.shape = (nshot, h, w, c)
-  labels = tf.keras.Input((height, width, 1)); # labels.shape = (nshot, h, w, 1) with foreground value 1 and background value 0
-  if mode == 'mask':
-    # convolute query tensor with a single foreground prototype vector (average of foregound area vectors)
-    proto = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = (1, 2)) / (tf.math.reduce_sum(x[1], axis = (1, 2)) + 1e-5))([support, labels]); # proto.shape = (nshot, c)
-    proto = tf.keras.layers.Lambda(lambda x: tf.reshape(tf.math.reduce_mean(x, axis = 0), (1, 1, 1, -1)))(proto); # proto.shape = (1, 1, 1, c)
-    pred_mask = tf.keras.layers.Lambda(lambda x: 20. * tf.math.reduce_sum(x[0] * x[1], axis = -1) / tf.maximum(tf.norm(x[0], axis = -1) * tf.norm(x[1], axis = -1), 1e-4))([query, proto]); # pred_mask.shape = (qn, h, w)
-    return tf.keras.Model(inputs = (query, support, labels), outputs = pred_mask, name = name);
-  else:
-    # get multiple foreground prototype vectors of down sampled input tensor (all foreground area vectors)
-    n_sup = tf.keras.layers.AveragePooling2D(pool_size = (4, 4))(support); # n_sup.shape = (nshot, nh, nw, c)
-    n_sup = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1, tf.shape(x)[-1])))(n_sup); # n_sup.shape = (nshot * nh * nw, c)
-    n_label = tf.keras.layers.AveragePooling2D(pool_size = (4, 4))(labels); # n_label.shape = (nshot, nh, nw, 1)
-    n_label = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1,)))(n_label); # n_label.shape = (nshot * nh * nw)
-    fg = tf.keras.layers.Lambda(lambda x, t: tf.math.greater(x, t), arguments = {'t': thresh})(n_label); # mask.shape = (nshot * nh * nw)
-    protos = tf.keras.layers.Lambda(lambda x: tf.boolean_mask(x[0], x[1]))([n_sup, fg]); # protos.shape = (n, c)
-    # normalize query tensor
-    qry = tf.keras.layers.Lambda(lambda x: x / tf.maximum(tf.norm(x, axis = -1, keepdims = True), 1e-4))(query); # qry.shape = (qn, h, w, c)
-    if mode == 'gridconv':
-      # convolute query tensor with multiple downsampled foreground prototype vectors
-      protos = tf.keras.layers.Lambda(lambda x: x / tf.maximum(tf.norm(x, axis = -1, keepdims = True), 1e-4))(protos); # protos.shape = (n, c)
-      filters = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.expand_dims(tf.transpose(x, (1, 0)), axis = 0), axis = 0))(protos); # filters.shape = (1, 1, c, n)
-      dists = tf.keras.layers.Lambda(lambda x: tf.nn.conv2d(input = x[0], filters = x[1], strides = (1, 1), padding = 'VALID') * 20)([qry, filters]); # dists.shape = (qn, h, w, n)
-      pred_grid = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(tf.nn.softmax(x, axis = -1) * x, axis = -1))(dists); # pred_grid.shape = (qn, h, w)
-      return tf.keras.Model(inputs = (query, support, labels), outputs = pred_grid, name = name);
-    elif mode == 'gridconv+':
-      # convolute query tensor with multiple prototype vectors from original resolution input tensor and downsampled input tensor
-      glb_proto = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = (1, 2)) / tf.math.reduce_sum(x[1], axis = (1, 2)) + 1e-5)([support, labels]); # glb_proto.shape = (nshot, c)
-      merge_proto = tf.keras.layers.Concatenate(axis = 0)([protos, glb_proto]); # merge_proto.shape = (n + nshot, c)
-      pro_n = tf.keras.layers.Lambda(lambda x: x / tf.maximum(tf.norm(x, axis = -1, keepdims = True), 1e-4))(merge_proto); # pro_n.shape = (n + nshot, c)
-      filters = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.expand_dims(tf.transpose(x, (1, 0)), axis = 0), axis = 0))(pro_n); # filters.shape = (1, 1, c, n + nshot)
-      dists = tf.keras.layers.Lambda(lambda x: tf.nn.conv2d(input = x[0], filters = x[1], strides = (1, 1), padding = 'VALID') * 20)([qry, filters]); # dists.shape = (qn, h, w, n + nshot)
-      pred_grid = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(tf.nn.softmax(x, axis = -1) * x, axis = -1))(dists); # pred_grid.shape = (qn, h, w)
-      return tf.keras.Model(inputs = (query, support, labels), outputs = pred_grid, name = name);
-    else:
-      raise Exception('unknown mode!');
-
 def Bottleneck(input_shape, filters, stride = 1, dilation = 1):
 
   # NOTE: either stride or dilation can be over 1
@@ -100,30 +58,82 @@ def ResNet101Atrous():
   results = ResNetAtrous([3, 4, 23, 3], [2, 2, 2])(inputs);
   return tf.keras.Model(inputs = inputs, outputs = results, name = 'resnet101');
 
+def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, name = None):
+
+  # NOTE: this model predicts foreground mask of query images, according to the given support image and masks
+  assert mode in ['mask', 'gridconv', 'gridconv+'];
+  query = tf.keras.Input((height, width, channel)); # query.shape = (qn, h, w, c)
+  support = tf.keras.Input((height, width, channel)); # support.shape = (nshot, h, w, c)
+  labels = tf.keras.Input((height, width, 1)); # labels.shape = (nshot, h, w, 1) with foreground value 1 and background value 0
+  if mode == 'mask':
+    # convolute query tensor with a single foreground prototype vector (average of foregound area vectors)
+    proto = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = (1, 2)) / (tf.math.reduce_sum(x[1], axis = (1, 2)) + 1e-5))([support, labels]); # proto.shape = (nshot, c)
+    proto = tf.keras.layers.Lambda(lambda x: tf.reshape(tf.math.reduce_mean(x, axis = 0), (1, 1, 1, -1)))(proto); # proto.shape = (1, 1, 1, c)
+    pred_mask = tf.keras.layers.Lambda(lambda x: 20. * tf.math.reduce_sum(x[0] * x[1], axis = -1) / tf.maximum(tf.norm(x[0], axis = -1) * tf.norm(x[1], axis = -1), 1e-4))([query, proto]); # pred_mask.shape = (qn, h, w)
+    return tf.keras.Model(inputs = (query, support, labels), outputs = pred_mask, name = name);
+  else:
+    # get multiple foreground prototype vectors of down sampled input tensor (all foreground area vectors)
+    n_sup = tf.keras.layers.AveragePooling2D(pool_size = (4, 4))(support); # n_sup.shape = (nshot, nh, nw, c)
+    n_sup = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1, tf.shape(x)[-1])))(n_sup); # n_sup.shape = (nshot * nh * nw, c)
+    n_label = tf.keras.layers.AveragePooling2D(pool_size = (4, 4))(labels); # n_label.shape = (nshot, nh, nw, 1)
+    n_label = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1,)))(n_label); # n_label.shape = (nshot * nh * nw)
+    fg = tf.keras.layers.Lambda(lambda x, t: tf.math.greater(x, t), arguments = {'t': thresh})(n_label); # mask.shape = (nshot * nh * nw)
+    protos = tf.keras.layers.Lambda(lambda x: tf.boolean_mask(x[0], x[1]))([n_sup, fg]); # protos.shape = (n, c)
+    # normalize query tensor
+    qry = tf.keras.layers.Lambda(lambda x: x / tf.maximum(tf.norm(x, axis = -1, keepdims = True), 1e-4))(query); # qry.shape = (qn, h, w, c)
+    if mode == 'gridconv':
+      # convolute query tensor with multiple downsampled foreground prototype vectors
+      protos = tf.keras.layers.Lambda(lambda x: x / tf.maximum(tf.norm(x, axis = -1, keepdims = True), 1e-4))(protos); # protos.shape = (n, c)
+      filters = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.expand_dims(tf.transpose(x, (1, 0)), axis = 0), axis = 0))(protos); # filters.shape = (1, 1, c, n)
+      dists = tf.keras.layers.Lambda(lambda x: tf.nn.conv2d(input = x[0], filters = x[1], strides = (1, 1), padding = 'VALID') * 20)([qry, filters]); # dists.shape = (qn, h, w, n)
+      pred_grid = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(tf.nn.softmax(x, axis = -1) * x, axis = -1))(dists); # pred_grid.shape = (qn, h, w)
+      return tf.keras.Model(inputs = (query, support, labels), outputs = pred_grid, name = name);
+    elif mode == 'gridconv+':
+      # convolute query tensor with multiple prototype vectors from original resolution input tensor and downsampled input tensor
+      glb_proto = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = (1, 2)) / tf.math.reduce_sum(x[1], axis = (1, 2)) + 1e-5)([support, labels]); # glb_proto.shape = (nshot, c)
+      merge_proto = tf.keras.layers.Concatenate(axis = 0)([protos, glb_proto]); # merge_proto.shape = (n + nshot, c)
+      pro_n = tf.keras.layers.Lambda(lambda x: x / tf.maximum(tf.norm(x, axis = -1, keepdims = True), 1e-4))(merge_proto); # pro_n.shape = (n + nshot, c)
+      filters = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.expand_dims(tf.transpose(x, (1, 0)), axis = 0), axis = 0))(pro_n); # filters.shape = (1, 1, c, n + nshot)
+      dists = tf.keras.layers.Lambda(lambda x: tf.nn.conv2d(input = x[0], filters = x[1], strides = (1, 1), padding = 'VALID') * 20)([qry, filters]); # dists.shape = (qn, h, w, n + nshot)
+      pred_grid = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(tf.nn.softmax(x, axis = -1) * x, axis = -1))(dists); # pred_grid.shape = (qn, h, w)
+      return tf.keras.Model(inputs = (query, support, labels), outputs = pred_grid, name = name);
+    else:
+      raise Exception('unknown mode!');
+
 def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmentation', pretrain = None):
 
   query = tf.keras.Input((None, None, 3)); # query.shape = (qn, h, w, 3)
   support = tf.keras.Input((None, None, 3)); # support.shape = (nshot, h, w, 3)
   labels = tf.keras.Input((None, None, 1 + fg_class_num)); # labels.shape = (nshot, h, w, 1 + foreground number)
   imgs_concat = tf.keras.layers.Concatenate(axis = 0)([support, query]); # imgs_concat.shape = (nshot + qn, h, w, 3)
+  # 1) get feature from support and query images
   resnet50 = ResNet50Atrous();
   if pretrain is not None: resnet50.load_weights(pretrain);
   img_fts = resnet50(imgs_concat)[1]; # img_fts.shape = (nshot + qn, nh, nw, 2048)
   img_fts = tf.keras.layers.Conv2D(filters = 256, kernel_size = (1,1))(img_fts); # img_fts.shape = (nshot + qn, nh, nw, 256)
   supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x[0], (tf.shape(x[1])[0], tf.shape(x[2])[0]), axis = 0))([img_fts, support, query]); # supp_fts.shape = (nshot, nh, nw, 256), qry_fts.shape = (qn, nh, nw, 256)
+  # 2) downsample labels to match the size of the feature size
   ds_labels = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([labels, img_fts]); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)
   ds_bg, ds_fg = tf.keras.layers.Lambda(lambda x, c: tf.split(x, (1, c), axis = -1), arguments = {'c': fg_class_num})(ds_labels); # ds_bg.shape = (nshot, nh, nw, 1), ds_fg.shape = (nshot, nh, nw, foreground number)
+  # 3) get masks of every class
   gridconv = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = thresh);
   gridconv_plus = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = thresh);
   mask = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = thresh);
   scores = list();
+  # 3.1) get background membership mask
   bg_raw_score = gridconv([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (qn, nh, nw)
   scores.append(bg_raw_score);
+  # 3.2) get foreground membership masks
+  def func1(i, qry_fts, supp_fts, ds_fg):
+    return gridconv_plus([qry_fts, supp_fts, ds_fg[...,i:i+1]]);
+  def func2(i, qry_fts, supp_fts, ds_fg):
+    return mask([qry_fts, supp_fts, ds_fg[...,i:i+1]]);
   for i in range(fg_class_num):
     maxval = tf.keras.layers.Lambda(lambda x, i: tf.math.reduce_max(tf.nn.avg_pool2d(x[..., i:i+1], (4,4), strides = (1,1), padding = 'VALID')), arguments = {'i': i})(ds_fg);
-    fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t : tf.cond(tf.math.greater(x[3], t), lambda: gridconv_plus([x[0], x[1], x[2][...,i:i+1]]), lambda: mask([x[0], x[1], x[2][...,i:i+1]])), arguments = {'i': i, 't': thresh})([qry_fts, supp_fts, ds_fg, maxval]);
+    fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t : tf.cond(tf.math.greater(x[3], t), lambda: func1(i, x[0], x[1], x[2]), lambda: func2(i, x[0], x[1], x[2])), arguments = {'i': i, 't': thresh})([qry_fts, supp_fts, ds_fg, maxval]);
     scores.append(fg_raw_score);
   scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (qn, nh, nw, 1 + foreground number)
+  # 4) upsample membership masks to match the size of the input image size
   pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([scores, labels]); # pred.shape = (qn, h, w, 1 + foreground number)
   return tf.keras.Model(inputs = (query, support, labels), outputs = (pred, supp_fts, qry_fts));
 
@@ -143,9 +153,13 @@ def Loss(fg_class_num, thresh = 0.95):
   scores = list();
   bg_raw_score = gridconv([supp_fts, qry_fts, query_bg]); # bg_raw_score.shape = (nshot, nh, nw)
   scores.append(bg_raw_score);
+  def func1(i, qry_fts, supp_fts, ds_fg):
+    return gridconv_plus([qry_fts, supp_fts, ds_fg[...,i:i+1]]);
+  def func2(i, qry_fts, supp_fts, ds_fg):
+    return mask([qry_fts, supp_fts, ds_fg[...,i:i+1]]);
   for i in range(fg_class_num):
     maxval = tf.keras.layers.Lambda(lambda x, i: tf.math.reduce_max(tf.nn.avg_pool2d(x[..., i:i+1], (4,4), strides = (1,1), padding = 'VALID')), arguments = {'i': i})(query_fg);
-    fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t: tf.cond(tf.math.greater(x[3], t), lambda: gridconv_plus([x[0], x[1], x[2][...,i:i+1]]), lambda: mask([x[0], x[1], x[2][...,i:i+1]])), arguments = {'i': i, 't': thresh})([supp_fts, qry_fts, query_fg, maxval]);
+    fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t: tf.cond(tf.math.greater(x[3], t), lambda: func1(i, x[0], x[1], x[2]), lambda: func2(i, x[0], x[1], x[2])), arguments = {'i': i, 't': thresh})([supp_fts, qry_fts, query_fg, maxval]);
     scores.append(fg_raw_score);
   scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (nshot, nh, nw, 1 + foreground number)
   supp_pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([scores, labels]); # supp_pred.shape = (nshot, h, w, 1 + foreground)
@@ -173,4 +187,7 @@ if __name__ == "__main__":
   s = np.random.normal(size = (10, 480, 640, 3));
   l = np.random.randint(low = 0, high = 2, size = (10, 480, 640, 11));
   pred = fss([q, s, l]);
-  fss.save_weights('fss.h5');
+  fss.save('fss.h5');
+  loss = Loss(10);
+  l = loss([l, pred, s, q]);
+  loss.save('loss.h5');

@@ -33,11 +33,13 @@ def main():
   while True:
     support, supp_label, query, query_label = next(trainset_iter);
     with tf.GradientTape() as tape:
-      preds, supp_fts, qry_fts, maxval1, maxval2 = fewshot((query, support, supp_label));
-      print(maxval1, maxval2)
-      l, maxval1, maxval2 = loss((supp_label, preds, supp_fts, qry_fts));
-      print(maxval1, maxval2)
-    grads = tape.gradient(l, fewshot.trainable_variables);
+      preds, supp_fts, qry_fts = fewshot((query, support, supp_label));
+      l = loss((supp_label, preds, supp_fts, qry_fts));
+    try:
+      grads = tape.gradient(l, fewshot.trainable_variables);
+    except:
+      print('failed to get grads, skip current iterations');
+      continue;
     if tf.math.reduce_any([tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(grad), tf.math.is_inf(grad))) for grad in grads]) == True:
       print('detected nan in grads, skip current iterations');
       continue;

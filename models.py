@@ -110,7 +110,7 @@ def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmen
   resnet50 = ResNet50Atrous();
   if pretrain is not None: resnet50.load_weights(pretrain);
   img_fts = resnet50(imgs_concat)[1]; # img_fts.shape = (nshot + qn, nh, nw, 2048)
-  img_fts = tf.keras.layers.Conv2D(filters = 256, kernel_size = (1,1))(img_fts); # img_fts.shape = (nshot + qn, nh, nw, 256)
+  img_fts = tf.keras.layers.Conv2D(filters = 256, kernel_size = (1,1), padding = 'same')(img_fts); # img_fts.shape = (nshot + qn, nh, nw, 256)
   supp_fts, qry_fts = tf.keras.layers.Lambda(lambda x: tf.split(x[0], (tf.shape(x[1])[0], tf.shape(x[2])[0]), axis = 0))([img_fts, support, query]); # supp_fts.shape = (nshot, nh, nw, 256), qry_fts.shape = (qn, nh, nw, 256)
   # 2) downsample labels to match the size of the feature size
   ds_labels = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([labels, img_fts]); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)

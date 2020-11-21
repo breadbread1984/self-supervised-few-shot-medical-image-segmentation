@@ -72,9 +72,9 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, nam
   if mode == 'mask':
     return tf.keras.Model(inputs = (query, support, labels), outputs = pred_mask, name = name);
   # get multiple foreground prototype vectors of down sampled input tensor (all foreground area vectors)
-  n_sup = tf.keras.layers.AveragePooling2D(pool_size = (4, 4))(support); # n_sup.shape = (nshot, nh, nw, c)
+  n_sup = tf.keras.layers.AveragePooling2D(pool_size = (2, 2))(support); # n_sup.shape = (nshot, nh, nw, c)
   n_sup = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1, tf.shape(x)[-1])))(n_sup); # n_sup.shape = (nshot * nh * nw, c)
-  n_label = tf.keras.layers.AveragePooling2D(pool_size = (4, 4))(labels); # n_label.shape = (nshot, nh, nw, 1)
+  n_label = tf.keras.layers.AveragePooling2D(pool_size = (2, 2))(labels); # n_label.shape = (nshot, nh, nw, 1)
   n_label_flatten = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1,)))(n_label); # n_label.shape = (nshot * nh * nw)
   fg = tf.keras.layers.Lambda(lambda x, t: tf.math.greater(x, t), arguments = {'t': thresh})(n_label_flatten); # mask.shape = (nshot * nh * nw)
   protos = tf.keras.layers.Lambda(lambda x: tf.boolean_mask(x[0], x[1]))([n_sup, fg]); # protos.shape = (n, c)
@@ -119,7 +119,7 @@ def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmen
   # 3) get masks of every class
   scores = list();
   # 3.1) get background membership mask
-  maxval1 = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4,4), strides = (1,1), padding = 'VALID')))(ds_bg);
+  maxval1 = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (2,2), strides = (1,1), padding = 'VALID')))(ds_bg);
   results1 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = thresh)([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (qn, nh, nw)
   results2 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = thresh)([qry_fts, supp_fts, ds_bg]); # results2.shape = (qn, nh, nw)
   bg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.math.greater(x[2], t), lambda: x[0], lambda: x[1]), arguments = {'t': thresh})([results1, results2, maxval1]);
@@ -127,7 +127,7 @@ def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmen
   # 3.2) get foreground membership masks
   for i in range(fg_class_num):
     sub_ds_fg = tf.keras.layers.Lambda(lambda x, i: x[...,i:i+1], arguments = {'i': i})(ds_fg); # sub_ds_fg.shape = (nshot, nh, nw, 1)
-    maxval2 = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4,4), strides = (1,1), padding = 'VALID')))(sub_ds_fg);
+    maxval2 = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (2,2), strides = (1,1), padding = 'VALID')))(sub_ds_fg);
     results1 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = thresh)([qry_fts, supp_fts, sub_ds_fg]);
     results2 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = thresh)([qry_fts, supp_fts, sub_ds_fg]);
     fg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.math.greater(x[2], t), lambda: x[0], lambda: x[1]), arguments = {'t': thresh})([results1, results2, maxval2]);
@@ -151,7 +151,7 @@ def Loss(fg_class_num, thresh = 0.95):
   # 2) predict background, foreground membership masks of support images, according to given query image and masks
   scores = list();
   # 2.1) get background membership mask
-  maxval1 = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4,4), strides = (1,1), padding = 'VALID')))(query_bg);
+  maxval1 = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (2,2), strides = (1,1), padding = 'VALID')))(query_bg);
   results1 = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = thresh)([supp_fts, qry_fts, query_bg]); # bg_raw_score.shape = (nshot, nh, nw)
   results2 = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = thresh)([supp_fts, qry_fts, query_bg]); # bg_raw_score.shape = (nshot, nh, nw)
   bg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.math.greater(x[2], t), lambda: x[0], lambda: x[1]), arguments = {'t': thresh})([results1, results2, maxval1]);
@@ -159,7 +159,7 @@ def Loss(fg_class_num, thresh = 0.95):
   # 2.2) get foreground membership masks
   for i in range(fg_class_num):
     sub_query_fg = tf.keras.layers.Lambda(lambda x, i: x[..., i:i+1], arguments = {'i': i})(query_fg); # sub_query_fg.shape = (qn, nh, nw, 1)
-    maxval2 = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4,4), strides = (1,1), padding = 'VALID')))(sub_query_fg);
+    maxval2 = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (2,2), strides = (1,1), padding = 'VALID')))(sub_query_fg);
     results1 = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv+', thresh = thresh)([supp_fts, qry_fts, sub_query_fg]);
     results2 = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = thresh)([supp_fts, qry_fts, sub_query_fg]);
     fg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.math.greater(x[2], t), lambda: x[0], lambda: x[1]), arguments = {'t': thresh})([results1, results2, maxval2]);

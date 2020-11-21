@@ -150,7 +150,10 @@ def Loss(fg_class_num, thresh = 0.95):
   # 2) predict background, foreground membership masks of support images, according to given query image and masks
   scores = list();
   # 2.1) get background membership mask
-  bg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = thresh)([supp_fts, qry_fts, query_bg]); # bg_raw_score.shape = (nshot, nh, nw)
+  maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4,4), strides = (1,1), padding = 'VALID')))(query_bg);
+  results1 = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = thresh)([supp_fts, qry_fts, query_bg]); # bg_raw_score.shape = (nshot, nh, nw)
+  results2 = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = thresh)([supp_fts, qry_fts, query_bg]); # bg_raw_score.shape = (nshot, nh, nw)
+  bg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.math.greater(x[2], t), lambda: x[0], lambda: x[1]), arguments = {'t': thresh})([results1, results2, maxval]);
   scores.append(bg_raw_score);
   # 2.2) get foreground membership masks
   for i in range(fg_class_num):

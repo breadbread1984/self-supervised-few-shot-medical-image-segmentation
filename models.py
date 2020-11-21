@@ -15,7 +15,7 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, nam
     pred_mask = tf.keras.layers.Lambda(lambda x: 20. * tf.math.reduce_sum(x[0] * x[1], axis = -1) / tf.maximum(tf.norm(x[0], axis = -1) * tf.norm(x[1], axis = -1), 1e-4))([query, proto]); # pred_mask.shape = (qn, h, w)
     return tf.keras.Model(inputs = (query, support, labels), outputs = pred_mask, name = name);
   else:
-    # get foreground prototype vectors of down sampled input tensor
+    # get multiple foreground prototype vectors of down sampled input tensor
     n_sup = tf.keras.layers.AveragePooling2D(pool_size = (4, 4))(support); # n_sup.shape = (nshot, nh, nw, c)
     n_sup = tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1, tf.shape(x)[-1])))(n_sup); # n_sup.shape = (nshot * nh * nw, c)
     n_label = tf.keras.layers.AveragePooling2D(pool_size = (4, 4))(labels); # n_label.shape = (nshot, nh, nw, 1)
@@ -25,14 +25,14 @@ def ALPNet(height, width, channel = 2048, mode = 'gridconv+', thresh = 0.95, nam
     # normalize query tensor
     qry = tf.keras.layers.Lambda(lambda x: x / tf.maximum(tf.norm(x, axis = -1, keepdims = True), 1e-4))(query); # qry.shape = (qn, h, w, c)
     if mode == 'gridconv':
-      # convolute query tensor with downsampled foreground prototype vectors
+      # convolute query tensor with multiple downsampled foreground prototype vectors
       protos = tf.keras.layers.Lambda(lambda x: x / tf.maximum(tf.norm(x, axis = -1, keepdims = True), 1e-4))(protos); # protos.shape = (n, c)
       filters = tf.keras.layers.Lambda(lambda x: tf.expand_dims(tf.expand_dims(tf.transpose(x, (1, 0)), axis = 0), axis = 0))(protos); # filters.shape = (1, 1, c, n)
       dists = tf.keras.layers.Lambda(lambda x: tf.nn.conv2d(input = x[0], filters = x[1], strides = (1, 1), padding = 'VALID') * 20)([qry, filters]); # dists.shape = (qn, h, w, n)
       pred_grid = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(tf.nn.softmax(x, axis = -1) * x, axis = -1))(dists); # pred_grid.shape = (qn, h, w)
       return tf.keras.Model(inputs = (query, support, labels), outputs = pred_grid, name = name);
     elif mode == 'gridconv+':
-      # convolute query tensor with prototype vectors from original resolution input tensor and downsampled input tensor
+      # convolute query tensor with multiple prototype vectors from original resolution input tensor and downsampled input tensor
       glb_proto = tf.keras.layers.Lambda(lambda x: tf.math.reduce_sum(x[0] * x[1], axis = (1, 2)) / tf.math.reduce_sum(x[1], axis = (1, 2)) + 1e-5)([support, labels]); # glb_proto.shape = (nshot, c)
       merge_proto = tf.keras.layers.Concatenate(axis = 0)([protos, glb_proto]); # merge_proto.shape = (n + nshot, c)
       pro_n = tf.keras.layers.Lambda(lambda x: x / tf.maximum(tf.norm(x, axis = -1, keepdims = True), 1e-4))(merge_proto); # pro_n.shape = (n + nshot, c)

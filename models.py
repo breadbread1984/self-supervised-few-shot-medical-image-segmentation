@@ -116,21 +116,17 @@ def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmen
   ds_labels = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([labels, img_fts]); # ds_labels.shape = (nshot, nh, nw, 1 + foreground number)
   ds_bg, ds_fg = tf.keras.layers.Lambda(lambda x, c: tf.split(x, (1, c), axis = -1), arguments = {'c': fg_class_num})(ds_labels); # ds_bg.shape = (nshot, nh, nw, 1), ds_fg.shape = (nshot, nh, nw, foreground number)
   # 3) get masks of every class
-  gridconv = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = thresh);
-  gridconv_plus = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = thresh);
-  mask = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = thresh);
   scores = list();
   # 3.1) get background membership mask
-  bg_raw_score = gridconv([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (qn, nh, nw)
+  bg_raw_score = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = thresh)([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (qn, nh, nw)
   scores.append(bg_raw_score);
   # 3.2) get foreground membership masks
-  def func1(i, qry_fts, supp_fts, ds_fg):
-    return gridconv_plus([qry_fts, supp_fts, ds_fg[...,i:i+1]]);
-  def func2(i, qry_fts, supp_fts, ds_fg):
-    return mask([qry_fts, supp_fts, ds_fg[...,i:i+1]]);
   for i in range(fg_class_num):
-    maxval = tf.keras.layers.Lambda(lambda x, i: tf.math.reduce_max(tf.nn.avg_pool2d(x[..., i:i+1], (4,4), strides = (1,1), padding = 'VALID')), arguments = {'i': i})(ds_fg);
-    fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t : tf.cond(tf.math.greater(x[3], t), lambda: func1(i, x[0], x[1], x[2]), lambda: func2(i, x[0], x[1], x[2])), arguments = {'i': i, 't': thresh})([qry_fts, supp_fts, ds_fg, maxval]);
+    sub_ds_fg = tf.keras.layers.Lambda(lambda x, i: x[...,i:i+1], arguments = {'i': i})(ds_fg); # sub_ds_fg.shape = (nshot, nh, nw, 1)
+    maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4,4), strides = (1,1), padding = 'VALID')))(sub_ds_fg);
+    results1 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv+', thresh = thresh)([qry_fts, supp_fts, sub_ds_fg]);
+    results2 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = thresh)([qry_fts, supp_fts, sub_ds_fg]);
+    fg_raw_score = tf.keras.layers.Lambda(lambda x, t : tf.cond(tf.math.greater(x[2], t), lambda: x[0], lambda: x[1]), arguments = {'t': thresh})([results1, results2, maxval]);
     scores.append(fg_raw_score);
   scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (qn, nh, nw, 1 + foreground number)
   # 4) upsample membership masks to match the size of the input image size
@@ -147,23 +143,19 @@ def Loss(fg_class_num, thresh = 0.95):
   pred_cls = tf.keras.layers.Lambda(lambda x: tf.math.argmax(x, axis = -1))(pred); # pred_cls.shape = (qn, h, w)
   query_label = tf.keras.layers.Lambda(lambda x, c: tf.one_hot(x, depth = c, axis = -1), arguments = {'c': 1 + fg_class_num})(pred_cls); # query_label.shape = (qn, h, w, 1 + foreground number)
   ds_query_label = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], size = tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([query_label, supp_fts]); # ds_query_label.shape = (qn, nh, nw, 1 + foreground number)
-  query_bg, query_fg = tf.keras.layers.Lambda(lambda x, c: tf.split(x, (1, c), axis = -1), arguments = {'c': fg_class_num})(ds_query_label); # query_bg.shape = (qn, h, w, 1), query_fg.shape = (qn, h, w, foreground number)
+  query_bg, query_fg = tf.keras.layers.Lambda(lambda x, c: tf.split(x, (1, c), axis = -1), arguments = {'c': fg_class_num})(ds_query_label); # query_bg.shape = (qn, nh, nw, 1), query_fg.shape = (qn, nh, nw, foreground number)
   # 2) predict background, foreground membership masks of support images, according to given query image and masks
-  gridconv = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = thresh);
-  gridconv_plus = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv+', thresh = thresh);
-  mask = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = thresh);  
   scores = list();
   # 2.1) get background membership mask
-  bg_raw_score = gridconv([supp_fts, qry_fts, query_bg]); # bg_raw_score.shape = (nshot, nh, nw)
+  bg_raw_score = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv', thresh = thresh)([supp_fts, qry_fts, query_bg]); # bg_raw_score.shape = (nshot, nh, nw)
   scores.append(bg_raw_score);
   # 2.2) get foreground membership masks
-  def func1(i, qry_fts, supp_fts, ds_fg):
-    return gridconv_plus([qry_fts, supp_fts, ds_fg[...,i:i+1]]);
-  def func2(i, qry_fts, supp_fts, ds_fg):
-    return mask([qry_fts, supp_fts, ds_fg[...,i:i+1]]);
   for i in range(fg_class_num):
-    maxval = tf.keras.layers.Lambda(lambda x, i: tf.math.reduce_max(tf.nn.avg_pool2d(x[..., i:i+1], (4,4), strides = (1,1), padding = 'VALID')), arguments = {'i': i})(query_fg);
-    fg_raw_score = tf.keras.layers.Lambda(lambda x, i, t: tf.cond(tf.math.greater(x[3], t), lambda: func1(i, x[0], x[1], x[2]), lambda: func2(i, x[0], x[1], x[2])), arguments = {'i': i, 't': thresh})([supp_fts, qry_fts, query_fg, maxval]);
+    sub_query_fg = tf.keras.layers.Lambda(lambda x, i: x[..., i:i+1], arguments = {'i': i})(query_fg); # sub_query_fg.shape = (qn, nh, nw, 1)
+    maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4,4), strides = (1,1), padding = 'VALID')))(sub_query_fg);
+    results1 = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'gridconv+', thresh = thresh)([supp_fts, qry_fts, sub_query_fg]);
+    results2 = ALPNet(supp_fts.shape[1], supp_fts.shape[2], supp_fts.shape[3], mode = 'mask', thresh = thresh)([supp_fts, qry_fts, sub_query_fg]);
+    fg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.math.greater(x[2], t), lambda: x[0], lambda: x[1]), arguments = {'t': thresh})([results1, results2, maxval]);
     scores.append(fg_raw_score);
   scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (nshot, nh, nw, 1 + foreground number)
   # 3) upsample membership masks to match the size of the input image size

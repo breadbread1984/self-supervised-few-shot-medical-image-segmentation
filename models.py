@@ -121,7 +121,7 @@ def FewShotSegmentation(fg_class_num = 1, thresh = 0.95, name = 'few_shot_segmen
   maxval = tf.keras.layers.Lambda(lambda x: tf.math.reduce_max(tf.nn.avg_pool2d(x, (4,4), strides = (1,1), padding = 'VALID')))(ds_bg);
   results1 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'gridconv', thresh = thresh)([qry_fts, supp_fts, ds_bg]); # bg_raw_score.shape = (qn, nh, nw)
   results2 = ALPNet(qry_fts.shape[1], qry_fts.shape[2], qry_fts.shape[3], mode = 'mask', thresh = thresh)([qry_fts, supp_fts, ds_bg]); # results2.shape = (qn, nh, nw)
-  bg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.math.greater(x[2], t), lambda x[0], lambda: x[1]), arguments = {'t': thresh})([results1, results2, maxval]);
+  bg_raw_score = tf.keras.layers.Lambda(lambda x, t: tf.cond(tf.math.greater(x[2], t), lambda: x[0], lambda: x[1]), arguments = {'t': thresh})([results1, results2, maxval]);
   scores.append(bg_raw_score);
   # 3.2) get foreground membership masks
   for i in range(fg_class_num):

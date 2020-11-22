@@ -33,8 +33,24 @@ def main():
   while True:
     support, supp_label, query, query_label = next(trainset_iter);
     with tf.GradientTape() as tape:
+      if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(support), tf.math.is_inf(support))) == True:
+        print('detected nan in support, skip current iterations');
+        continue;
+      if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(supp_label), tf.math.is_inf(supp_label))) == True:
+        print('detected nan in supp_label, skip current iterations');
+        continue;
+      if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(query), tf.math.is_inf(query))) == True:
+        print('detected nan in query, skip current iterations');
+        continue;
       preds, supp_fts, qry_fts = fewshot((query, support, supp_label));
       l, supp_preds = loss((supp_label, preds, supp_fts, qry_fts));
+      if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(preds), tf.math.is_inf(preds))) == True:
+        print('detected nan in preds, skip current iterations');
+        pdb.set_trace();
+        continue;
+      if tf.math.reduce_any(tf.math.logical_or(tf.math.is_nan(l), tf.math.is_inf(l))) == True:
+        print('detected nan in loss, skip current iterations');
+        continue;
     try:
       grads = tape.gradient(l, fewshot.trainable_variables);
     except:

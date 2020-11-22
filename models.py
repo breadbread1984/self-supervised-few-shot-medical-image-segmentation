@@ -156,7 +156,7 @@ def Loss(fg_class_num, thresh = 0.95):
   scores = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(scores); # scores.shape = (nshot, nh, nw, 1 + foreground number)
   # 3) upsample membership masks to match the size of the input image size
   supp_pred = tf.keras.layers.Lambda(lambda x: tf.image.resize(x[0], tf.shape(x[1])[1:3], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR))([scores, labels]); # supp_pred.shape = (nshot, h, w, 1 + foreground)
-  loss = tf.keras.losses.CategoricalCrossentropy()(labels, supp_pred);
+  loss = tf.keras.losses.CategoricalCrossentropy(from_logits = True)(labels, supp_pred);
   return tf.keras.Model(inputs = (labels, pred, supp_fts, qry_fts), outputs = (loss, supp_pred));
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@ def main():
     support, supp_label, query, query_label = next(trainset_iter);
     with tf.GradientTape() as tape:
       preds, supp_fts, qry_fts = fewshot((query, support, supp_label));
-      l, _ = loss((supp_label, preds, supp_fts, qry_fts));
+      l, supp_preds = loss((supp_label, preds, supp_fts, qry_fts));
     try:
       grads = tape.gradient(l, fewshot.trainable_variables);
     except:
